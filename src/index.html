@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Метро 26 — машинист</title>
+<meta name="description" content="Симулятор машиниста Московского метро: кабина, станции, пассажиры, схема метро.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=PT+Sans+Narrow:wght@700&display=swap" rel="stylesheet">
+<!--STYLE-->
+</head>
+<body>
+<div id="app">
+  <canvas id="view"></canvas>
+
+  <div id="hud" class="hidden">
+    <div class="hud-tl">
+      <div class="route"><span class="ln-badge" id="hudLine">1</span><span id="hudDir">→</span></div>
+      <div class="next"><span class="lbl">Следующая</span> <b id="hudNext">—</b></div>
+      <div class="transfers" id="hudTr"></div>
+    </div>
+    <div class="hud-tr">
+      <div><span class="lbl">Очки</span> <b id="hudScore">0</b></div>
+      <div><span class="lbl">Время</span> <b id="hudTime">06:00</b></div>
+    </div>
+    <div class="hud-stop hidden" id="hudStop">
+      <div class="stop-lbl"><span id="hudStopTxt">До остановки</span> <b id="hudStopM">0 м</b></div>
+      <div class="stop-bar"><div class="stop-fill" id="hudStopFill"></div><div class="stop-mark"></div></div>
+    </div>
+    <div class="hud-bl">
+      <div class="speed"><b id="hudSpeed">0</b><span>км/ч</span></div>
+      <div class="ars" id="hudArs"><span class="lbl">АРС</span><b id="hudLim">80</b></div>
+      <div class="ctrl">
+        <div class="bar"><i id="hudTr1"></i></div><span class="lbl">ход</span>
+        <div class="bar brake"><i id="hudBr1"></i></div><span class="lbl">тормоз</span>
+      </div>
+      <div class="doors" id="hudDoors">ДВЕРИ ЗАКРЫТЫ</div>
+    </div>
+    <div class="hud-keys" id="hudKeys"><b>W</b> ход · <b>S</b> тормоз · <b>Пробел</b> двери · <b>C</b> вид снаружи · <b>M</b> карта · <b>Esc</b> меню · мышь — обзор</div>
+  </div>
+
+  <div id="touch" class="hidden">
+    <button class="tb go" id="tGo">ХОД</button>
+    <button class="tb br" id="tBr">ТОРМОЗ</button>
+    <button class="tb" id="tDoor">ДВЕРИ</button>
+    <button class="tb small" id="tView">ВИД</button>
+    <button class="tb small" id="tMap">КАРТА</button>
+    <button class="tb small" id="tMenu">МЕНЮ</button>
+  </div>
+
+  <div id="toast" class="hidden"></div>
+  <div id="banner" class="hidden"><div class="b-line" id="bLine"></div><div class="b-name" id="bName"></div><div class="b-tr" id="bTr"></div></div>
+
+  <div id="mapPanel" class="hidden">
+    <div class="map-head">
+      <div class="map-title">Схема метро <span class="muted">без МЦК и МЦД</span></div>
+      <div class="map-where" id="mapWhere"></div>
+      <div class="map-btns">
+        <button id="mapZoomIn" title="Приблизить">+</button>
+        <button id="mapZoomOut" title="Отдалить">−</button>
+        <button id="mapAll" title="Вся схема">Вся схема</button>
+        <button id="mapTrain" title="К поезду">К поезду</button>
+        <button id="mapClose" class="close" title="Закрыть (M)">✕</button>
+      </div>
+    </div>
+    <div id="mapBox"></div>
+  </div>
+
+  <div id="menu" class="screen">
+    <div class="menu-panel">
+      <div class="logo">
+        <div class="logo-m">М</div>
+        <div><div class="logo-t">МЕТРО 26</div><div class="logo-s">симулятор машиниста Московского метро</div></div>
+      </div>
+      <div class="step"><div class="step-h">1. Линия</div><div class="lines" id="lineList"></div></div>
+      <div class="step"><div class="step-h">2. Направление</div><div class="dirs" id="dirList"></div></div>
+      <div class="step"><div class="step-h">3. Поезд</div><div class="trains" id="trainList"></div></div>
+      <div class="step opts">
+        <label class="chk"><input type="checkbox" id="optShort"> сокращённые перегоны (вдвое короче)</label>
+      </div>
+      <button class="btn primary big" id="btnStart">Поехали!</button>
+      <div class="menu-row">
+        <button class="btn" id="btnContinue">Продолжить</button>
+        <button class="btn" id="btnLoad">Загрузить</button>
+        <button class="btn" id="btnMap">Схема метро</button>
+        <button class="btn" id="btnSettings">Настройки</button>
+        <button class="btn" id="btnHelp">Управление</button>
+      </div>
+    </div>
+    <div class="menu-info" id="menuInfo"></div>
+  </div>
+
+  <div id="pause" class="screen hidden">
+    <div class="dlg">
+      <h2>Пауза</h2>
+      <div class="pause-info" id="pauseInfo"></div>
+      <button class="btn primary" id="pResume">Продолжить</button>
+      <button class="btn" id="pSave">Сохранить</button>
+      <button class="btn" id="pLoad">Загрузить</button>
+      <button class="btn" id="pMap">Схема метро</button>
+      <button class="btn" id="pSettings">Настройки</button>
+      <button class="btn" id="pHelp">Управление</button>
+      <button class="btn danger" id="pExit">Выйти в главное меню</button>
+    </div>
+  </div>
+
+  <div id="dialog" class="screen hidden"><div class="dlg" id="dlgBody"></div></div>
+  <div id="finish" class="screen hidden"><div class="dlg" id="finBody"></div></div>
+  <div id="loading" class="hidden"><div class="spinner"></div><div id="loadTxt">Строим тоннели…</div></div>
+</div>
+<!--SCRIPT-->
+</body>
+</html>
