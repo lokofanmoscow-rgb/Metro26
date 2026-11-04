@@ -341,7 +341,7 @@ export function buildStation(route, st, line) {
         sh.holes.push(h);
         info.spots.push({ x: (xa + xb) / 2 + (xa > -10 ? 2.2 : -2.2), z: z + cs / 2 });
       }
-      const g = new THREE.ExtrudeGeometry(sh, { depth: xb - xa, bevelEnabled: false, curveSegments: 10 });
+      const g = new THREE.ExtrudeGeometry(sh, { depth: xb - xa, bevelEnabled: false, curveSegments: 7 });
       // экструзия идёт вдоль +Z фигуры; поворачиваем: фигура (z,y) -> мир (x)
       g.rotateY(-Math.PI / 2);
       g.translate(xb, 0, 0);

@@ -88,6 +88,16 @@ export class Game {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    this._applyFov();
+  }
+
+  // вертикальный угол обзора: на узких (портретных) экранах расширяем, чтобы был виден путь
+  _applyFov() {
+    const base = this.fovBase || 70;
+    const a = this.camera.aspect;
+    let f = base;
+    if (a < 1.3) f = Math.min(100, 2 * Math.atan(Math.tan((base / 2) * Math.PI / 180) * 1.3 / a) * 180 / Math.PI);
+    this.camera.fov = f;
     this.camera.updateProjectionMatrix();
   }
 
@@ -123,6 +133,9 @@ export class Game {
     this.servedSet = new Set(state?.served || []);
     this.announced = new Set(state?.announced || []);
     this.atStation = null;
+    // уже пройденные станции (при загрузке сохранения) повторно не штрафуем
+    this._skipNoted = new Set(state?.skipped || []);
+    if (state) for (const st of this.route.stations) if (this.s > st.stop + 30) this._skipNoted.add(st.k);
     this.finished = false;
     this.overspeed = false;
     this.intervals = new Map();
@@ -306,7 +319,7 @@ export class Game {
     cv.addEventListener('pointercancel', end);
     cv.addEventListener('wheel', (e) => {
       if (this.view.mode === 'outside' || this.view.mode === 'menu') this.view.odist = clamp(this.view.odist * (1 + Math.sign(e.deltaY) * 0.1), 3.5, 40);
-      else this.camera.fov = clamp(this.camera.fov + Math.sign(e.deltaY) * 4, 35, 90), this.camera.updateProjectionMatrix();
+      else { this.fovBase = clamp((this.fovBase || 70) + Math.sign(e.deltaY) * 4, 35, 90); this._applyFov(); }
       e.preventDefault();
     }, { passive: false });
   }
@@ -429,7 +442,7 @@ export class Game {
       v: 1, line: this.lineId, dir: this.dir, train: this.trainId, short: this.settings.short,
       s: this.s, speed: this.v, doorsOpen: this.doorTarget === 1,
       stats: this.stats, gameTime: this.gameTime, elapsed: this.elapsed,
-      served: [...this.servedSet], announced: [...this.announced],
+      served: [...this.servedSet], announced: [...this.announced], skipped: [...(this._skipNoted || [])],
       next: this.route.stations[this.route.nextStationIndex(this.s)]?.name,
     };
   }
@@ -573,8 +586,7 @@ export class Game {
     // отправление: пропуск станции
     if (this.atStation != null && this.doorTarget === 0 && this.s > R.stations[this.atStation].p1 + 40) this.atStation = null;
     for (const st of R.stations) {
-      if (!this.servedSet.has(st.k) && this.s > st.stop + 30 && st.k !== R.stations.length - 1 && !this._skipNoted?.has(st.k)) {
-        this._skipNoted = this._skipNoted || new Set();
+      if (!this.servedSet.has(st.k) && this.s > st.stop + 30 && st.k !== R.stations.length - 1 && !this._skipNoted.has(st.k)) {
         this._skipNoted.add(st.k);
         this.stats.skipped++; this.stats.score = Math.max(0, this.stats.score - 150);
         this._msg(`Станция «${st.name}» проехана без остановки (−150)`, 4);
@@ -657,7 +669,6 @@ export class Game {
       const q = new THREE.Quaternion().setFromRotationMatrix(g.matrix);
       const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(this.view.pitch, this.view.yaw, 0, 'YXZ'));
       cam.quaternion.copy(q).multiply(look);
-      if (cam.fov !== (this._cabFov || 70)) { /* fov меняется колесом */ }
     } else {
       // орбита вокруг поезда на станции / в меню
       const near = this._stationNear();
