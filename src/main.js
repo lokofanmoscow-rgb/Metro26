@@ -1,5 +1,5 @@
 // Интерфейс: меню, HUD, карта, сохранения.
-import { Game } from './game.js';
+import { Game, transfersFor } from './game.js';
 import { MetroMap } from './ui/map.js';
 import { SCHEME } from './data/scheme.js';
 import { LINES, PLAYABLE, TRAINS } from './data/lines.js';
@@ -27,7 +27,7 @@ const saves = {
   remove(slot) { const a = this.all(); if (slot === 'auto') a.auto = null; else a.slots[slot] = null; store.write(SAVE_KEY, a); },
 };
 
-const sel = { line: 'ln1', dir: 0, train: '717' };
+const sel = { line: 'ln1', dir: 0, train: '717', startK: 0 };
 let game = null;
 let map = null;
 let inGame = false;
@@ -63,26 +63,12 @@ const ui = {
     if (!text) { t.classList.add('hidden'); return; }
     t.textContent = text; t.classList.remove('hidden');
   },
-  stationBanner(st, tr, last) {
-    const b = $('banner');
-    b.classList.remove('hidden');
-    const l = game.line;
-    $('bLine').style.background = l.color;
-    $('bLine').textContent = `${l.num} · ${l.name}`;
-    $('bName').textContent = st.name;
-    const parts = [];
-    if (tr.length) parts.push('Переход: ' + tr.map((t) => `${t.station} (${t.line.num})`).join(', '));
-    if (last) parts.push('Конечная');
-    if (st.style.y) parts.push(`открыта в ${st.style.y} г.`);
-    $('bTr').innerHTML = parts.join(' · ') + (st.style.info ? `<br><span style="opacity:.85">${st.style.info}</span>` : '');
-    b.style.animation = 'none'; void b.offsetWidth; b.style.animation = '';
-    clearTimeout(this._bt); this._bt = setTimeout(() => b.classList.add('hidden'), 4600);
-  },
   onHud(s) {
     lastHud = s;
     $('hudSpeed').textContent = Math.round(s.speed);
     $('hudLim').textContent = s.limit;
-    $('hudArs').className = 'ars' + (s.overspeed ? ' over' : s.limit < 80 ? ' low' : '');
+    $('hudArs').className = 'ars' + (s.overspeed ? ' over' : !s.free && s.limit < 80 ? ' low' : '');
+    $('hudArs').querySelector('.lbl').textContent = s.free ? 'МАКС' : 'АРС';
     $('hudTr1').style.width = `${s.traction * 100}%`;
     $('hudBr1').style.width = `${s.brake * 100}%`;
     const d = $('hudDoors');
@@ -150,12 +136,13 @@ function renderLines() {
     b.className = 'line-btn' + (playable ? '' : ' off') + (sel.line === l.id ? ' sel' : '');
     b.innerHTML = `${lineBadge(l)}<span>${l.name.replace(/ линия$/i, '').replace(/ Линия$/, '')}${playable ? '' : '<span class="soon">скоро</span>'}</span>`;
     b.title = playable ? l.name : `${l.name} — в разработке`;
-    if (playable) b.onclick = () => { sel.line = l.id; renderLines(); renderDirs(); refreshShowroom(); };
+    if (playable) b.onclick = () => { sel.line = l.id; sel.startK = 0; renderLines(); renderDirs(); refreshShowroom(); };
     box.appendChild(b);
   }
 }
 
 function renderDirs() {
+  if ($('stName')) renderStation();
   const L = LINES[sel.line];
   const a = L.stations[0].n, b = L.stations[L.stations.length - 1].n;
   $('dirList').innerHTML = '';
@@ -163,11 +150,54 @@ function renderDirs() {
     const e = document.createElement('button');
     e.className = 'dir-btn' + (sel.dir === d ? ' sel' : '');
     e.textContent = txt;
-    e.onclick = () => { sel.dir = d; renderDirs(); refreshShowroom(); };
+    e.onclick = () => { sel.dir = d; sel.startK = 0; renderDirs(); refreshShowroom(); };
     $('dirList').appendChild(e);
   });
   const st = L.stations;
   $('menuInfo').innerHTML = `${lineBadge(L)} <b>${L.name}</b><br>${st.length} станций · ${(st.reduce((t, s) => t + s.d, 0) / 1000).toFixed(1)} км<br><span style="color:#9aa3ad">Станции построены по описаниям оформления из Википедии: тип конструкции, облицовка стен, колонн и пола.</span>`;
+}
+
+// станции выбранной линии в порядке выбранного направления
+function dirStations() {
+  const st = LINES[sel.line].stations;
+  return sel.dir === 0 ? st : [...st].reverse();
+}
+
+function trBadges(sid) {
+  return transfersFor(sid).map((t) => `<i style="background:${t.line.color}">${t.line.num}</i>`).join('');
+}
+
+function renderStation() {
+  const L = LINES[sel.line];
+  const list = dirStations();
+  const k = Math.min(sel.startK, list.length - 2);
+  $('stName').textContent = list[k].n;
+  $('stHint').textContent = k === 0 ? 'начало линии · нажмите, чтобы выбрать другую' : `${k + 1}-я станция по ходу · до конечной ${list.length - 1 - k}`;
+  $('stDot').style.borderColor = L.color;
+  $('btnStation').classList.toggle('sel', k > 0);
+}
+
+function stationDialog() {
+  const L = LINES[sel.line];
+  const list = dirStations();
+  const body = $('dlgBody');
+  body.innerHTML = `<h2>Станция отправления</h2><p class="muted">${L.name}: ${list[0].n} → ${list[list.length - 1].n}</p>`;
+  const box = document.createElement('div');
+  box.className = 'st-list';
+  list.forEach((st, k) => {
+    const last = k === list.length - 1;
+    const e = document.createElement('button');
+    e.className = 'st-item' + (k === sel.startK ? ' sel' : '') + (last ? ' end' : '');
+    e.innerHTML = `<span class="rail" style="background:${L.color}"></span><span class="pt" style="border-color:${L.color}"></span><span class="nm">${st.n}${last ? ' <small>(конечная)</small>' : ''}</span><span class="tr">${trBadges(st.sid)}</span>`;
+    if (!last) e.onclick = () => { sel.startK = k; renderStation(); $('dialog').classList.add('hidden'); refreshShowroom(); };
+    else e.disabled = true;
+    box.appendChild(e);
+  });
+  body.appendChild(box);
+  addClose(body);
+  $('dialog').classList.remove('hidden');
+  const cur = box.children[sel.startK];
+  if (cur) cur.scrollIntoView({ block: 'center' });
 }
 
 function renderTrains() {
@@ -184,7 +214,7 @@ function renderTrains() {
 
 function refreshShowroom() {
   if (inGame || !game) return;
-  game.setup({ line: sel.line, dir: sel.dir, train: sel.train, showroom: true });
+  game.setup({ line: sel.line, dir: sel.dir, train: sel.train, showroom: true, startK: sel.startK });
 }
 
 function toMenu() {
@@ -204,11 +234,13 @@ function startGame(loadData = null) {
   game.sound.init();
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   game.settings.short = $('optShort').checked;
+  game.settings.free = $('optFree').checked;
   withLoading(() => {
     if (loadData) {
       game.load(loadData);
-      sel.line = loadData.line; sel.dir = loadData.dir; sel.train = loadData.train;
-    } else game.setup({ line: sel.line, dir: sel.dir, train: sel.train });
+      sel.line = loadData.line; sel.dir = loadData.dir; sel.train = loadData.train; sel.startK = 0;
+      $('optFree').checked = !!loadData.free;
+    } else game.setup({ line: sel.line, dir: sel.dir, train: sel.train, startK: sel.startK });
     inGame = true;
     game.paused = false;
     $('menu').classList.add('hidden');
@@ -386,7 +418,7 @@ function boot() {
   // скрипты работают: убираем подсказку для просмотрщиков без JavaScript
   $('app').classList.remove('no-js');
   // меню заполняем до запуска 3D-графики, чтобы оно работало, даже если графика не стартует
-  renderLines(); renderDirs(); renderTrains();
+  renderLines(); renderDirs(); renderStation(); renderTrains();
   if (!webgl2()) {
     fatal('Браузер не поддерживает WebGL 2', 'Для 3D-графики нужен браузер с WebGL 2: Safari на iOS 15 и новее, свежий Chrome, Firefox или Edge. Обновите систему или браузер и откройте игру снова.');
     return () => {};
@@ -402,6 +434,7 @@ function boot() {
   // фото-текстуры детальных станций декодируются в фоне
   loadHQ();
   $('btnStart').onclick = () => startGame();
+  $('btnStation').onclick = stationDialog;
   $('btnContinue').onclick = () => { const a = saves.all().auto; if (a) { $('optShort').checked = !!a.data.short; startGame(a.data); } };
   $('btnContinue').disabled = !saves.all().auto;
   $('btnLoad').onclick = loadDialog;

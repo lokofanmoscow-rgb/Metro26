@@ -63,11 +63,6 @@ button:focus-visible { outline: 2px solid #ffcf3a; outline-offset: 2px; }
 .hud-keys b { color: var(--text); }
 
 #toast { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line); border-left: 4px solid var(--warn); padding: 10px 16px; border-radius: 8px; font-size: 16px; max-width: min(640px, 92vw); text-align: center; pointer-events: none; }
-#banner { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; animation: bannerIn 4.5s ease forwards; }
-#banner .b-line { display: inline-block; padding: 3px 10px; border-radius: 12px; color: #fff; font-weight: 700; font-size: 13px; }
-#banner .b-name { font-size: clamp(32px, 6vw, 60px); font-weight: 700; text-shadow: 0 2px 12px rgba(0,0,0,.7); margin-top: 6px; }
-#banner .b-tr { margin-top: 6px; font-size: 15px; color: #dfe3e6; text-shadow: 0 1px 6px rgba(0,0,0,.8); }
-@keyframes bannerIn { 0% { opacity: 0; transform: translate(-50%, 10px); } 12% { opacity: 1; transform: translate(-50%, 0); } 80% { opacity: 1; } 100% { opacity: 0; } }
 
 /* ---------- сенсорные кнопки ---------- */
 #touch { position: absolute; right: calc(14px + env(safe-area-inset-right, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(3, auto); gap: 8px; }
@@ -116,7 +111,27 @@ button:focus-visible { outline: 2px solid #ffcf3a; outline-offset: 2px; }
 .train-btn b { display: block; font-size: 15px; }
 .train-btn span { color: var(--muted); font-size: 12px; }
 .train-btn .sw { display: inline-block; width: 34px; height: 12px; border-radius: 3px; margin-right: 8px; vertical-align: middle; }
+.opts { display: flex; flex-direction: column; gap: 8px; }
 .chk { display: flex; gap: 8px; align-items: center; font-size: 14px; color: #d8dde2; cursor: pointer; }
+.st-btn { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,.03); color: var(--text); cursor: pointer; text-align: left; font-size: 14px; }
+.st-btn:hover { background: rgba(255,255,255,.08); }
+.st-btn.sel { border-color: #fff; background: rgba(255,255,255,.1); }
+.st-dot { width: 14px; height: 14px; border-radius: 7px; border: 3px solid #fff; flex: none; }
+.st-txt { flex: 1; min-width: 0; }
+.st-txt b { display: block; font-size: 15px; }
+.st-txt span { color: var(--muted); font-size: 12px; }
+.st-arrow { font-size: 22px; color: var(--muted); }
+.st-list { display: flex; flex-direction: column; max-height: 62vh; overflow-y: auto; margin: 4px 0; }
+.st-item { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: none; background: none; color: var(--text); cursor: pointer; text-align: left; font-size: 15px; border-radius: 6px; position: relative; }
+.st-item:hover, .st-item.sel { background: rgba(255,255,255,.08); }
+.st-item .rail { position: absolute; left: 19px; top: 0; bottom: 0; width: 4px; }
+.st-item:first-child .rail { top: 50%; }
+.st-item:last-child .rail { bottom: 50%; }
+.st-item .pt { width: 12px; height: 12px; border-radius: 6px; background: #fff; border: 3px solid; flex: none; position: relative; z-index: 1; margin-left: 4px; }
+.st-item .nm { flex: 1; min-width: 0; }
+.st-item .tr { display: flex; gap: 4px; }
+.st-item .tr i { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; border-radius: 9px; color: #fff; font-size: 10px; font-style: normal; font-weight: 700; padding: 0 4px; }
+.st-item.end { color: var(--muted); cursor: default; }
 .btn { padding: 9px 14px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,.06); color: var(--text); cursor: pointer; font-size: 14px; font-weight: 700; }
 .btn:hover { background: rgba(255,255,255,.12); }
 .btn.primary { background: var(--accent); border-color: var(--accent); }
@@ -180,6 +195,5 @@ button:focus-visible { outline: 2px solid #ffcf3a; outline-offset: 2px; }
   .tb.small { height: 40px; }
   #mapPanel { inset: 0; border-radius: 0; }
   .map-where { order: 3; flex-basis: 100%; }
-  #banner { top: 30%; width: 92vw; }
 }
 @media (pointer: coarse) { .hud-keys { display: none; } }

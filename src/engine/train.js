@@ -149,19 +149,69 @@ function roofGeom(Lb, nose = 0) {
 }
 
 // торец вагона: плоская «шапка» сечения кузова
-function endCapGeom(z, facing) {
-  const sh = new THREE.Shape();
-  sh.moveTo(-HALF_W, BODY_Y0); sh.lineTo(HALF_W, BODY_Y0); sh.lineTo(HALF_W, SIDE_TOP);
-  for (let i = 1; i <= 10; i++) { const a = (i / 10) * Math.PI; sh.lineTo(Math.cos(a) * HALF_W, SIDE_TOP + Math.sin(a) * (ROOF_TOP - SIDE_TOP)); }
-  sh.lineTo(-HALF_W, BODY_Y0);
-  const g = new THREE.ShapeGeometry(sh, 4);
-  // UV: 0..1 по ширине/высоте
-  const uv = g.attributes.uv, p = g.attributes.position;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, (p.getX(i) + HALF_W) / (2 * HALF_W), (p.getY(i) - 0.3) / (ROOF_TOP - 0.3));
-  if (facing < 0) { g.rotateY(Math.PI); }
+// выпуклость лобовой маски (м) в точке (x, y): у «Москвы-2020» — заваленный назад
+// стеклянный нос, у «Русича» — скруглённая маска, у «Номерного» — почти плоский лоб
+export const NOSE = { '717': 0.1, '775': 0.62, '740': 0.34 };
+export function noseOffset(type, x, y) {
+  const b = NOSE[type] || 0;
+  if (!b) return 0;
+  const ax = Math.min(1, Math.abs(x) / HALF_W);
+  const across = 1 - Math.pow(ax, type === '775' ? 2.4 : 3);
+  let up;
+  if (type === '775') {
+    // самая выступающая часть — нижняя «улыбка», стекло заваливается назад к крыше
+    const t = (y - BODY_Y0) / (ROOF_TOP - BODY_Y0);
+    up = t < 0.3 ? 0.75 + t / 0.3 * 0.25 : 1 - Math.pow((t - 0.3) / 0.7, 1.3) * 0.9;
+  } else {
+    const t = (y - BODY_Y0) / (ROOF_TOP - BODY_Y0);
+    up = 1 - Math.pow(Math.abs(t - 0.45) / 0.55, 2) * 0.7;
+  }
+  return b * across * Math.max(0, up);
+}
+
+function endCapGeom(z, facing, type = null) {
+  // сетка по сечению кузова; при type — выпуклая лобовая маска
+  const NX = 28, NY = 24;
+  const pos = [], uv = [], idx = [];
+  for (let j = 0; j <= NY; j++) for (let i = 0; i <= NX; i++) {
+    const x = -HALF_W + (2 * HALF_W) * i / NX;
+    const ax = Math.min(1, Math.abs(x) / HALF_W);
+    const ymax = SIDE_TOP + Math.sqrt(Math.max(0, 1 - ax * ax)) * (ROOF_TOP - SIDE_TOP);
+    const y = BODY_Y0 + (ymax - BODY_Y0) * j / NY;
+    const off = type ? noseOffset(type, x, y) : 0;
+    pos.push(x, y, -off);
+    // сетка смотрит вперёд (-Z): левый край картинки — это +X
+    uv.push((HALF_W - x) / (2 * HALF_W), (y - 0.3) / (ROOF_TOP - 0.3));
+  }
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+    const a = j * (NX + 1) + i, b = a + 1, c = a + NX + 1, d = c + 1;
+    idx.push(a, c, b, b, c, d);
+  }
+  if (type && NOSE[type]) {
+    // днище и верх выпуклой маски: соединяем нижний и верхний край с плоскостью торца кузова
+    for (const j of [0, NY]) {
+      const base = pos.length / 3;
+      for (let i = 0; i <= NX; i++) {
+        const k = (j * (NX + 1) + i) * 3;
+        pos.push(pos[k], pos[k + 1], 0);
+        uv.push(uv[(j * (NX + 1) + i) * 2], uv[(j * (NX + 1) + i) * 2 + 1]);
+      }
+      for (let i = 0; i < NX; i++) {
+        const e0 = j * (NX + 1) + i, e1 = e0 + 1, b0 = base + i, b1 = b0 + 1;
+        if (j === 0) idx.push(e0, e1, b0, e1, b1, b0); else idx.push(e0, b0, e1, e1, b0, b1);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  // сетка смотрит в -Z (вперёд); для заднего торца разворачиваем
+  if (facing > 0) g.rotateY(Math.PI);
   g.translate(0, 0, z);
   return g;
 }
+
 
 function bogieGeom() {
   const parts = [boxGeom(2.1, 0.32, 2.7, 0, 0.42, 0), boxGeom(0.18, 0.2, 2.9, -0.95, 0.4, 0), boxGeom(0.18, 0.2, 2.9, 0.95, 0.4, 0)];
@@ -734,23 +784,22 @@ export class Train {
         if (cabF) {
           const ft = frontTexture(this.type, dest, false);
           this.frontTex = ft;
-          const fm = new THREE.MeshStandardMaterial({ map: ft.map, emissiveMap: ft.emissive, emissive: 0xffffff, roughness: 0.35, metalness: 0.2 });
-          g.add(new THREE.Mesh(endCapGeom(-Lb / 2, -1), fm));
+          const fm = env(new THREE.MeshPhysicalMaterial({ map: ft.map, emissiveMap: ft.emissive, emissive: 0xffffff, roughness: 0.3, metalness: 0.15, clearcoat: 1, clearcoatRoughness: 0.08 }));
+          g.add(new THREE.Mesh(endCapGeom(-Lb / 2, -1, this.type), fm));
+          const nz = (x, y) => -Lb / 2 - noseOffset(this.type, x, y);
           this.frontMat = fm;
           this.frontLb = Lb;
           // стекло на лобовой маске — блики
           const ws = this.type === '775' ? [1.62, 3.25, 1.25] : this.type === '740' ? [1.85, 2.98, 1.2] : [1.98, 2.98, 1.2];
-          const wg = new THREE.Mesh(new THREE.PlaneGeometry(ws[2] * 2, ws[1] - ws[0]), this.mats.glass);
-          wg.rotation.y = Math.PI; wg.position.set(0, (ws[0] + ws[1]) / 2, -Lb / 2 - 0.015); wg.renderOrder = 3;
-          g.add(wg);
+          void ws;
           // фары с хромированными ободками и сцепка
           const ring = env(new THREE.MeshStandardMaterial({ color: 0xbfc3c6, metalness: 1, roughness: 0.25 }));
           const lens = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff6dc).multiplyScalar(2.2) });
           const hl = this.type === '717' ? [[-0.95, 1.58, 0.12], [0.95, 1.58, 0.12], [-0.39, 1.58, 0.085], [-0.13, 1.58, 0.085], [0.13, 1.58, 0.085], [0.39, 1.58, 0.085]]
             : this.type === '740' ? [[-1.05, 1.5, 0.08], [-0.82, 1.5, 0.08], [0.82, 1.5, 0.08], [1.05, 1.5, 0.08]] : [[-0.95, 1.3, 0.06], [0.95, 1.3, 0.06]];
-          g.add(new THREE.Mesh(mergeGeoms(hl.map(([x, y, r]) => cylGeom(r + 0.03, r + 0.03, 0.08, 18, x, y, -Lb / 2 - 0.04, Math.PI / 2, 0, 0))), ring));
-          g.add(new THREE.Mesh(mergeGeoms(hl.map(([x, y, r]) => cylGeom(r, r, 0.02, 18, x, y, -Lb / 2 - 0.085, Math.PI / 2, 0, 0))), lens));
-          g.add(new THREE.Mesh(mergeGeoms([boxGeom(0.28, 0.22, 0.6, 0, 0.78, -Lb / 2 - 0.3), boxGeom(0.46, 0.32, 0.14, 0, 0.78, -Lb / 2 - 0.62), boxGeom(1.8, 0.5, 0.08, 0, 0.42, -Lb / 2 + 0.05)]), this.mats.bogie));
+          g.add(new THREE.Mesh(mergeGeoms(hl.map(([x, y, r]) => cylGeom(r + 0.03, r + 0.03, 0.08, 18, x, y, nz(x, y) - 0.03, Math.PI / 2, 0, 0))), ring));
+          g.add(new THREE.Mesh(mergeGeoms(hl.map(([x, y, r]) => cylGeom(r, r, 0.02, 18, x, y, nz(x, y) - 0.075, Math.PI / 2, 0, 0))), lens));
+          { const cz = nz(0, 0.78); g.add(new THREE.Mesh(mergeGeoms([boxGeom(0.28, 0.22, 0.6, 0, 0.78, cz - 0.28), boxGeom(0.46, 0.32, 0.14, 0, 0.78, cz - 0.6), boxGeom(1.8, 0.5, 0.08, 0, 0.42, -Lb / 2 + 0.05)]), this.mats.bogie)); }
         } else {
           g.add(new THREE.Mesh(endCapGeom(-Lb / 2, -1), new THREE.MeshPhysicalMaterial({ ...paintParams, color: L.body, normalMap: null })));
           // гармошка межвагонного перехода
@@ -760,7 +809,7 @@ export class Train {
         }
         if (cabR) {
           const rt = frontTexture(this.type, dest, true);
-          g.add(new THREE.Mesh(endCapGeom(Lb / 2, 1), new THREE.MeshStandardMaterial({ map: rt.map, emissiveMap: rt.emissive, emissive: 0xffffff, roughness: 0.35 })));
+          g.add(new THREE.Mesh(endCapGeom(Lb / 2, 1, this.type), env(new THREE.MeshPhysicalMaterial({ map: rt.map, emissiveMap: rt.emissive, emissive: 0xffffff, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08 }))));
         } else {
           g.add(new THREE.Mesh(endCapGeom(Lb / 2, 1), new THREE.MeshPhysicalMaterial({ ...paintParams, color: L.body, normalMap: null })));
         }

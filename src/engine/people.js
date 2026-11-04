@@ -72,6 +72,7 @@ export class Crowd {
 
   attachAmbient(train) {
     this.people = this.people.filter((p) => !(p.frame === 'car' && p.train === this.ambient));
+    if (this.ambient) for (const sc of this.ambient.sections) for (const sp of sc.spots) sp.used = false;
     this.ambient = train;
     if (train) this.fillRiders(train, 0.3);
   }

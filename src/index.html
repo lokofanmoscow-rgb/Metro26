@@ -49,7 +49,6 @@
   </div>
 
   <div id="toast" class="hidden"></div>
-  <div id="banner" class="hidden"><div class="b-line" id="bLine"></div><div class="b-name" id="bName"></div><div class="b-tr" id="bTr"></div></div>
 
   <div id="mapPanel" class="hidden">
     <div class="map-head">
@@ -82,9 +81,13 @@
       <div class="nojs fatal hidden" id="fatal"><b id="fatalT">Игра не запустилась</b><p id="fatalM"></p></div>
       <div class="step"><div class="step-h">1. Линия</div><div class="lines" id="lineList"></div></div>
       <div class="step"><div class="step-h">2. Направление</div><div class="dirs" id="dirList"></div></div>
-      <div class="step"><div class="step-h">3. Поезд</div><div class="trains" id="trainList"></div></div>
+      <div class="step"><div class="step-h">3. Станция</div>
+        <button class="st-btn" id="btnStation"><span class="st-dot" id="stDot"></span><span class="st-txt"><b id="stName">—</b><span id="stHint">начало линии · нажмите, чтобы выбрать</span></span><span class="st-arrow">›</span></button>
+      </div>
+      <div class="step"><div class="step-h">4. Поезд</div><div class="trains" id="trainList"></div></div>
       <div class="step opts">
         <label class="chk"><input type="checkbox" id="optShort"> сокращённые перегоны (вдвое короче)</label>
+        <label class="chk"><input type="checkbox" id="optFree"> без ограничений скорости (АРС отключена, предел — максимальная скорость поезда)</label>
       </div>
       <button class="btn primary big" id="btnStart">Поехали!</button>
       <div class="menu-row">
