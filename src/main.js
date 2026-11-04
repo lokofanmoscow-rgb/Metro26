@@ -9,7 +9,7 @@ import { loadHQ } from './engine/hq.js';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'metro26.saves.v1';
-const SET_KEY = 'metro26.settings.v1';
+const SET_KEY = 'metro26.settings.v2'; // v2: максимальная графика по умолчанию
 
 const store = {
   read(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch (e) { return def; } },
@@ -189,7 +189,7 @@ function refreshShowroom() {
 
 function toMenu() {
   inGame = false;
-  game.sound.stopAll();
+  game.sound.setActive(false);
   $('menu').classList.remove('hidden');
   $('hud').classList.add('hidden');
   $('touch').classList.add('hidden');
@@ -225,6 +225,7 @@ function pause(on) {
   if (!inGame) return;
   game.paused = on;
   game.keys.up = game.keys.down = false;
+  game.sound.setActive(!on);
   $('pause').classList.toggle('hidden', !on);
   if (on) {
     const d = game.serialize();
@@ -398,7 +399,6 @@ function boot() {
   }
   const st = store.read(SET_KEY, null);
   if (st) { hudOn = st.hud !== false; game.applySettings(st); }
-  else if (/Android|iPhone|iPad/i.test(navigator.userAgent) || window.AndroidTTS) game.applySettings({ quality: 1, fx: false });
   // фото-текстуры детальных станций декодируются в фоне
   loadHQ();
   $('btnStart').onclick = () => startGame();

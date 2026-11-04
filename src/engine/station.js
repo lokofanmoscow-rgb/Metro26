@@ -65,7 +65,7 @@ function arc(cx, cy, rx, ry, a0, a1, n) {
 }
 
 // стенка-торец с проёмами тоннелей
-function endWall(z, x0, x1, y0, y1, holes, deep, facing) {
+function endWall(z, x0, x1, y0, y1, holes, deep, facing, rects = []) {
   // контур стены обязательно охватывает проёмы с запасом — иначе триангуляция
   // ломается и проём тоннеля оказывается заложен сплошной стеной
   const hw = deep ? TUBE_R : BOX_W;
@@ -79,6 +79,11 @@ function endWall(z, x0, x1, y0, y1, holes, deep, facing) {
     const p = new THREE.Path();
     if (deep) p.absarc(hx, TUBE_CY, TUBE_R, 0, Math.PI * 2, true);
     else { p.moveTo(hx - BOX_W, BED_Y - 0.5); p.lineTo(hx - BOX_W, BOX_TOP); p.lineTo(hx + BOX_W, BOX_TOP); p.lineTo(hx + BOX_W, BED_Y - 0.5); p.lineTo(hx - BOX_W, BED_Y - 0.5); }
+    sh.holes.push(p);
+  }
+  for (const [xa, xb, ya, yb] of rects) {
+    const p = new THREE.Path();
+    p.moveTo(xa, ya); p.lineTo(xb, ya); p.lineTo(xb, yb); p.lineTo(xa, yb); p.lineTo(xa, ya);
     sh.holes.push(p);
   }
   const g = new THREE.ShapeGeometry(sh, 24);
@@ -413,25 +418,83 @@ export function buildStation(route, st, line) {
     const topY = Math.max((t === 'pylon' || t === 'cold') ? 9.5 : t === 'vault' ? 8.2 : yC, hq && info.ceilY ? info.ceilY + 0.3 : 0);
     const endMat = mat(concreteTexture(shade(style.w, -0.1).slice(0, 7)), 0.4, { side: THREE.DoubleSide });
     endMat.color = new THREE.Color(style.wp === 'glass' ? '#cccccc' : style.w);
+    const xm = (EDGE_X + xFar) / 2;
+    // выход: марш лестницы к проёму в торце платформы, коридор и наклонный ход в вестибюль
+    const rise = Math.max(1.2, Math.min(2.04, topY - PLAT_Y - 2.6));
+    const LH = PLAT_Y + rise; // уровень площадки и коридора
+    const CH = 2.5; // высота коридора
+    const hw = 2.1; // полуширина прохода
+    const rect = [[xm - hw, xm + hw, LH, LH + CH]];
     grp.add(new THREE.Mesh(mergeGeoms([
-      endWall(-HZ, leftWall, rightWall, BED_Y - 0.4, topY, [0, oppX], deep, 1),
-      endWall(HZ, leftWall, rightWall, BED_Y - 0.4, topY, [0, oppX], deep, -1),
+      endWall(-HZ, leftWall, rightWall, BED_Y - 0.4, topY, [0, oppX], deep, 1, rect),
+      endWall(HZ, leftWall, rightWall, BED_Y - 0.4, topY, [0, oppX], deep, -1, rect),
     ]), endMat));
-    // торцы платформы (стены за платформой)
+    // торцы платформы с проёмом выхода
     const ew = mat(wTex, 0.45, { side: THREE.DoubleSide });
-    grp.add(new THREE.Mesh(mergeGeoms([wallZ(xFar, EDGE_X, PLAT_Y, topY, -PL), wallZ(xFar, EDGE_X, PLAT_Y, topY, PL)]), ew));
-    // выходы-лестницы у торцов
+    grp.add(new THREE.Mesh(mergeGeoms([wallZHole(xFar, EDGE_X, BED_Y - 0.4, topY, -PL, rect[0]), wallZHole(xFar, EDGE_X, BED_Y - 0.4, topY, PL, rect[0])]), ew));
+    // закрываем «карман» между концом платформы и торцевой стеной зала
+    grp.add(new THREE.Mesh(mergeGeoms([
+      wallX(EDGE_X, BED_Y - 0.4, topY, -HZ, -PL, 1), wallX(EDGE_X, BED_Y - 0.4, topY, PL, HZ, 1),
+      wallX(xFar, BED_Y - 0.4, topY, -HZ, -PL, -1), wallX(xFar, BED_Y - 0.4, topY, PL, HZ, -1),
+    ]), endMat));
+    info.stairs = [];
+    const lampM = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff1d6).multiplyScalar(2.2) });
     for (const zz of [-PL, PL]) {
-      const dir = zz < 0 ? 1 : -1;
-      const xm = (EDGE_X + xFar) / 2;
+      const dir = zz < 0 ? 1 : -1; // от торца внутрь зала
+      const o = -dir; // наружу
+      const nSteps = Math.round(rise / 0.17);
+      const sh = rise / nSteps;
+      const land = 1.6; // площадка у проёма
       const steps = [];
-      for (let i = 0; i < 12; i++) steps.push(boxGeom(4.2, 0.17 * (i + 1), 0.32, xm, PLAT_Y + 0.085 * (i + 1), zz + dir * (8 - i * 0.32)));
+      for (let i = 0; i < nSteps; i++) {
+        const h = sh * (nSteps - i);
+        const zc = zz + dir * (land + 0.32 * i + 0.16);
+        steps.push(boxGeom(4.2, h, 0.32, xm, PLAT_Y + h / 2, zc));
+      }
+      steps.push(boxGeom(4.2, rise, land, xm, PLAT_Y + rise / 2, zz + dir * land / 2));
       grp.add(new THREE.Mesh(mergeGeoms(steps), floorMat));
-      grp.add(new THREE.Mesh(boxGeom(4.4, 2.4, 0.1, xm, PLAT_Y + 2.04 + 1.2, zz + dir * 0.06), new THREE.MeshBasicMaterial({ color: 0xf6efe0 })));
-      info.exits.push({ x: xm, z: zz + dir * 4.5, y: PLAT_Y + 1.0 });
+      const flightEnd = zz + dir * (land + 0.32 * nSteps);
+      info.stairs.push({ x0: xm - 2.1, x1: xm + 2.1, zBottom: flightEnd, zTop: zz + dir * land, yBottom: PLAT_Y, yTop: LH, zWall: zz, o });
+      // боковые парапеты и поручни марша
+      const par = [];
+      for (const sx of [-1, 1]) {
+        const shp = new THREE.Shape();
+        shp.moveTo(0, 0); shp.lineTo(land + 0.32 * nSteps, 0); shp.lineTo(land, rise + 0.9); shp.lineTo(0, rise + 0.9); shp.lineTo(0, 0);
+        const g = new THREE.ExtrudeGeometry(shp, { depth: 0.14, bevelEnabled: false });
+        g.rotateY(dir > 0 ? -Math.PI / 2 : Math.PI / 2);
+        g.translate(xm + sx * 2.17 - (dir > 0 ? 0.07 : -0.07) * 0, PLAT_Y, zz);
+        par.push(g);
+      }
+      grp.add(new THREE.Mesh(mergeGeoms(par), mat(columnTexture(style), 0.4)));
+      const rails = [];
+      for (const sx of [-1, 1]) {
+        const len = Math.hypot(0.32 * nSteps, rise);
+        const g = cylGeom(0.03, 0.03, len, 8, 0, 0, 0, 0, 0, 0);
+        g.rotateX(-dir * Math.atan2(0.32 * nSteps, rise));
+        g.translate(xm + sx * 2.17, PLAT_Y + rise / 2 + 1.0, zz + dir * (land + 0.16 * nSteps));
+        rails.push(g);
+      }
+      grp.add(new THREE.Mesh(mergeGeoms(rails), new THREE.MeshLambertMaterial({ color: 0x2a2a2a })));
+      // коридор за проёмом: до торцевой стены зала и ещё 4 м дальше
+      const zA = zz, zB = o * (HZ + 4);
+      const z0 = Math.min(zA, zB), z1 = Math.max(zA, zB);
+      const cor = [];
+      cor.push(planeY(LH + 0.002, xm - hw, xm + hw, z0, z1));
+      grp.add(new THREE.Mesh(mergeGeoms(cor), floorMat));
+      grp.add(new THREE.Mesh(mergeGeoms([wallX(xm - hw, LH, LH + CH, z0, z1, 1), wallX(xm + hw, LH, LH + CH, z0, z1, -1)]), mat(wTex, 0.5)));
+      grp.add(new THREE.Mesh(planeY(LH + CH, xm - hw, xm + hw, z0, z1, false), ceilMat));
+      grp.add(lampsMesh(new THREE.BoxGeometry(0.3, 0.04, 2.2), (() => { const a = []; for (let z = z0 + 1.5; z < z1; z += 3.5) a.push({ x: xm, y: LH + CH - 0.03, z }); return a; })()));
+      // наклонный ход вверх (эскалаторы на глубоких станциях, лестница — на мелких)
+      const deepSt = (style.dp || 8) > 20;
+      const riseUp = deepSt ? Math.min(26, (style.dp || 30) * 0.55) : Math.max(4, (style.dp || 8) * 0.6);
+      grp.add(buildIncline(xm, LH, zB, o, riseUp, deepSt, { floorMat, wallMat: mat(wTex, 0.5), ceilMat, lampM, style }));
+      // стенка на стыке коридора и наклонного хода (закрывает щели по бокам и сверху)
+      const iw = deepSt ? 3.0 : 2.1;
+      grp.add(new THREE.Mesh(wallZHole(xm - iw - 0.2, xm + iw + 0.2, LH - 0.5, LH + 4.4, zB, [xm - hw, xm + hw, LH - 0.1, LH + CH]), endMat));
+      info.exits.push({ x: xm, z: zz + o * 3, y: LH });
       const exitSign = signTexture(['Выход в город'], { bg: '#1f2733', w: 512, h: 96 });
       const sg = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.48), new THREE.MeshBasicMaterial({ map: exitSign }));
-      sg.position.set(xm, PLAT_Y + 3.0, zz + dir * 9);
+      sg.position.set(xm, Math.min(topY - 0.4, LH + CH + 0.45), zz + dir * 0.08);
       if (dir < 0) sg.rotation.y = Math.PI;
       grp.add(sg);
     }
@@ -505,6 +568,83 @@ function signPair(w, h, x, y, z) {
   const a = new THREE.PlaneGeometry(w, h); a.rotateY(Math.PI / 2); a.translate(x + 0.01, y, z);
   const b = new THREE.PlaneGeometry(w, h); b.rotateY(-Math.PI / 2); b.translate(x - 0.01, y, z);
   return [a, b];
+}
+
+// стенка поперёк зала (плоскость z = const) с прямоугольным проёмом
+function wallZHole(x0, x1, y0, y1, z, [xa, xb, ya, yb]) {
+  const sh = new THREE.Shape();
+  sh.moveTo(x0, y0); sh.lineTo(x1, y0); sh.lineTo(x1, y1); sh.lineTo(x0, y1); sh.lineTo(x0, y0);
+  const h = new THREE.Path();
+  h.moveTo(xa, ya); h.lineTo(xb, ya); h.lineTo(xb, yb); h.lineTo(xa, yb); h.lineTo(xa, ya);
+  sh.holes.push(h);
+  const g = new THREE.ShapeGeometry(sh, 4);
+  const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 4, (uv.getY(i) - y0) / (y1 - y0));
+  g.translate(0, 0, z);
+  return g;
+}
+
+let escTex = null;
+function escalatorTexture() {
+  if (escTex) return escTex;
+  const c = makeCanvas(128, 256);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#3a3c3e'; ctx.fillRect(0, 0, 128, 256);
+  for (let y = 0; y < 256; y += 32) { ctx.fillStyle = '#d6b23a'; ctx.fillRect(0, y, 128, 3); ctx.fillStyle = '#1e1f20'; ctx.fillRect(0, y + 3, 128, 3); }
+  for (let x = 0; x < 128; x += 6) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x, 0, 2, 256); }
+  escTex = canvasTex(c);
+  escTex.userData.shared = true;
+  return escTex;
+}
+
+// Наклонный ход из коридора наверх: o — направление наружу (±1 по Z)
+function buildIncline(xm, y0, z0, o, rise, escal, { floorMat, wallMat, ceilMat, lampM, style }) {
+  const ang = escal ? Math.PI / 6 : Math.PI / 6.5;
+  const L = rise / Math.sin(ang);
+  const w = escal ? 3.0 : 2.1;
+  const inner = new THREE.Group();
+  // в локальной системе: вперёд (вверх по ходу) = -Z, пол на y = 0
+  const parts = { floor: [], wall: [], ceil: [], belt: [], bal: [], rail: [], lamps: [] };
+  parts.wall.push(wallX(-w, 0, 3.0, -L, 0.6, 1), wallX(w, 0, 3.0, -L, 0.6, -1));
+  const vault = arc(0, 3.0, w, 0.9, 0, Math.PI, 14);
+  parts.ceil.push(profileZ(vault, -L, 0.6, 4, 4));
+  if (escal) {
+    // три ленты эскалаторов, балюстрады и светильники-«торшеры»
+    for (const bx of [-1.75, 0, 1.75]) parts.belt.push(planeY(0.02, bx - 0.55, bx + 0.55, -L, 0.6, true, 1.1, 1.2));
+    for (const bx of [-2.55, -0.875, 0.875, 2.55]) {
+      parts.bal.push(boxGeom(bx === -2.55 || bx === 2.55 ? 0.9 : 0.55, 0.95, L + 0.6, bx, 0.47, -L / 2 + 0.3));
+      parts.rail.push(boxGeom(0.1, 0.06, L + 0.6, bx + (Math.abs(bx) > 2 ? -Math.sign(bx) * 0.4 : -0.25), 1.0, -L / 2 + 0.3), boxGeom(0.1, 0.06, L + 0.6, bx + (Math.abs(bx) > 2 ? -Math.sign(bx) * 0.4 : 0.25), 1.0, -L / 2 + 0.3));
+    }
+    for (let z = -2; z > -L; z -= 3.2) for (const bx of [-0.875, 0.875]) {
+      parts.rail.push(cylGeom(0.025, 0.025, 0.7, 6, bx, 1.3, z));
+      parts.lamps.push(cylGeom(0.07, 0.07, 0.28, 10, bx, 1.75, z));
+    }
+  } else {
+    // широкая лестница: ступени вдоль наклона
+    const n = Math.round(L / 0.36);
+    for (let i = 0; i < n; i++) parts.floor.push(boxGeom(2 * w - 0.1, 0.17, 0.33, 0, 0.0, -0.18 - i * 0.36));
+    parts.rail.push(boxGeom(0.06, 0.06, L, -w + 0.15, 0.95, -L / 2), boxGeom(0.06, 0.06, L, w - 0.15, 0.95, -L / 2), boxGeom(0.06, 0.06, L, 0, 0.95, -L / 2));
+  }
+  for (let z = -1.5; z > -L; z -= 4) parts.lamps.push(boxGeom(0.35, 0.05, 1.6, 0, 3.86, z));
+  const mk = (list, m) => { if (list.length) inner.add(new THREE.Mesh(mergeGeoms(list), m)); };
+  mk(parts.floor, floorMat); mk(parts.wall, wallMat); mk(parts.ceil, ceilMat);
+  mk(parts.belt, new THREE.MeshLambertMaterial({ map: escalatorTexture(), emissiveMap: escalatorTexture(), emissive: 0x555555 }));
+  mk(parts.bal, new THREE.MeshLambertMaterial({ color: 0xc8b089, emissive: 0x2a2418 }));
+  mk(parts.rail, new THREE.MeshLambertMaterial({ color: 0x151515 }));
+  mk(parts.lamps, lampM);
+  // наверху — светлый вестибюль
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(2 * w, 3.8), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff4e0).multiplyScalar(1.6) }));
+  glow.position.set(0, 1.9, -L - 0.4);
+  inner.add(glow);
+  const tilt = new THREE.Group();
+  tilt.add(inner);
+  // пол наклонного хода не должен «висеть» над коридором: опускаем начало на ступень
+  inner.rotation.x = ang;
+  const outer = new THREE.Group();
+  outer.add(tilt);
+  outer.position.set(xm, y0, z0);
+  if (o > 0) outer.rotation.y = Math.PI;
+  void style;
+  return outer;
 }
 
 function endWallBox(x0, x1, y0, y1, z) {

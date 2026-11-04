@@ -19,6 +19,7 @@ export class Sound {
     this.prevTr = 0;
     this.compT = 25;
     this.compOn = false;
+    this.active = false;
   }
 
   init() {
@@ -31,7 +32,7 @@ export class Sound {
     this.comp = ctx.createDynamicsCompressor();
     this.comp.threshold.value = -16; this.comp.ratio.value = 4; this.comp.attack.value = 0.01; this.comp.release.value = 0.25;
     this.comp.connect(ctx.destination);
-    this.out = ctx.createGain(); this.out.gain.value = this.volume;
+    this.out = ctx.createGain(); this.out.gain.value = this.active === false ? 0 : this.volume;
     this.out.connect(this.comp);
     this.tone = ctx.createBiquadFilter(); this.tone.type = 'lowpass'; this.tone.frequency.value = 7000; this.tone.Q.value = 0.5;
     this.tone.connect(this.out);
@@ -150,7 +151,14 @@ export class Sound {
     return b;
   }
 
-  setVolume(v) { this.volume = v; if (this.out) this.out.gain.value = v; }
+  setVolume(v) { this.volume = v; if (this.out) this.out.gain.setTargetAtTime(this.active ? v : 0, this.ctx.currentTime, 0.02); }
+
+  // в меню и на паузе поезд не должен звучать: глушим общий выход
+  setActive(on) {
+    this.active = on;
+    if (!on) this.stopAll();
+    if (this.out) this.out.gain.setTargetAtTime(on ? this.volume : 0, this.ctx.currentTime, on ? 0.15 : 0.02);
+  }
 
   burst({ dur = 0.08, freq = 1800, q = 1.2, gain = 0.3, type = 'bandpass', delay = 0, src = 'white', send = 0.5 } = {}) {
     if (!this.ctx || !this.enabled) return;

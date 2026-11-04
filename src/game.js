@@ -13,6 +13,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { disposeObject, clamp, lerp, fmtTime, mulberry32 } from './engine/util.js';
 import { LINES, TRAINS } from './data/lines.js';
 import { SCHEME } from './data/scheme.js';
@@ -59,6 +60,10 @@ export class Game {
     this.scene.fog = new THREE.FogExp2(0x050505, 0.012);
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 5000);
     initHQ(this.renderer);
+    // нейтральная «студийная» карта окружения для лакированных кузовов вне детальных станций
+    const pm = new THREE.PMREMGenerator(this.renderer);
+    this.defaultEnv = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+    pm.dispose();
     this.hemi = new THREE.HemisphereLight(0xfff4e2, 0x4a4238, 0.2);
     this.scene.add(this.hemi);
     this.amb = new THREE.AmbientLight(0xffffff, 0.04);
@@ -77,7 +82,7 @@ export class Game {
     this.sound = new Sound();
     this.crowd = new Crowd(this.scene);
     this.loaded = new Map();
-    this.settings = { volume: 0.8, voice: true, hud: true, short: false, quality: 1.5, sens: 1, fx: true };
+    this.settings = { volume: 0.8, voice: true, hud: true, short: false, quality: 2, sens: 1, fx: true };
     this.keys = { up: false, down: false };
     this.view = { yaw: 0, pitch: -0.04, mode: 'cab', oyaw: -0.9, opitch: 0.14, odist: 13 };
     this.mode = 'idle';
@@ -151,6 +156,9 @@ export class Game {
     if (this.train) { this.scene.remove(this.train.group); this.train.dispose(); }
     this.train = new Train(TRAINS[train], last.name);
     this.scene.add(this.train.group);
+    this.crowd.attachTrain(this.train);
+    if (showroom) this.crowd.fillRiders(this.train, 0.35);
+    else if (state) this.crowd.fillRiders(this.train, 0.25);
     this.s = s != null ? s : first.stop;
     this.v = v;
     this.traction = 0; this.brake = 0;
@@ -173,6 +181,7 @@ export class Game {
     this._stream(true);
     this.crowd.clear();
     this.mode = showroom ? 'menu' : 'drive';
+    this.sound.setActive(!showroom);
     this.view.mode = showroom ? 'menu' : 'cab';
     this.view.yaw = 0; this.view.pitch = -0.08;
     this.train.cab.group.visible = !showroom;
@@ -200,7 +209,7 @@ export class Game {
   _clearWorld() {
     for (const [, it] of this.loaded) this._unloadItem(it);
     this.loaded.clear();
-    if (this.ambient) { this.scene.remove(this.ambient.train.group); this.ambient.train.dispose(); this.ambient = null; }
+    if (this.ambient) { this.scene.remove(this.ambient.train.group); this.ambient.train.dispose(); this.ambient = null; this.crowd.attachAmbient(null); }
   }
 
   _unloadItem(it) {
@@ -665,7 +674,9 @@ export class Game {
     const R = this.route;
     const tr = new Train(TRAINS[type], R.stations[0].name);
     tr.cab.group.visible = false;
+    tr.setEnv(o.info.env || this.defaultEnv, 1);
     this.scene.add(tr.group);
+    this.crowd.attachAmbient(tr);
     const arriving = this.rng() < 0.6;
     this.ambient = { train: tr, st: o, k, z: arriving ? -420 : 78, v: arriving ? 16 : 0, state: arriving ? 'arrive' : 'dwell', t: arriving ? 0 : 8 + this.rng() * 10 };
   }
@@ -681,30 +692,28 @@ export class Game {
       if (d < 0.3) { a.v = 0; a.z = stop; a.state = 'dwell'; a.t = 18 + this.rng() * 10; }
     } else if (a.state === 'dwell') {
       a.t -= dt;
-      a.train.setDoors(clamp(Math.min(a.t - 3, 20 - a.t) / 2, 0, 1), 1);
-      if (a.t <= 0) { a.state = 'depart'; a.train.setDoors(0, 1); }
+      a.train.setDoors(clamp(Math.min(a.t - 3, 20 - a.t) / 2, 0, 1), -1);
+      if (a.t <= 0) { a.state = 'depart'; a.train.setDoors(0, -1); }
     } else if (a.state === 'depart') {
       a.v = Math.min(22, a.v + 1.0 * dt);
-      if (a.z > 600) { this.scene.remove(a.train.group); a.train.dispose(); this.ambient = null; return; }
+      if (a.z > 600) { this.scene.remove(a.train.group); a.train.dispose(); this.ambient = null; this.crowd.attachAmbient(null); return; }
     }
     a.z += a.v * dt;
-    if (!this.loaded.has('st:' + a.k)) { this.scene.remove(a.train.group); a.train.dispose(); this.ambient = null; return; }
+    if (!this.loaded.has('st:' + a.k)) { this.scene.remove(a.train.group); a.train.dispose(); this.ambient = null; this.crowd.attachAmbient(null); return; }
     // встречный поезд едет по пути oppX в сторону +Z локальной системы станции
     const M = a.st.group.matrixWorld;
     const base = new THREE.Matrix4().makeRotationY(Math.PI);
-    for (const sc of a.train.sections) {
+    a.train.placeSections((sc) => {
       const zc = a.z - sc.off - sc.Lb / 2;
-      const L = new THREE.Matrix4().makeTranslation(a.st.info.oppX, 0, zc).multiply(base);
-      sc.group.matrixAutoUpdate = false;
-      sc.group.matrix.multiplyMatrices(M, L);
-      sc.group.matrixWorldNeedsUpdate = true;
       // за торцами зала поезд прячем, чтобы не торчал сквозь тоннель
       sc.group.visible = Math.abs(zc) < 84 + sc.Lb / 2 + 30;
-    }
+      return new THREE.Matrix4().multiplyMatrices(M, new THREE.Matrix4().makeTranslation(a.st.info.oppX, 0, zc).multiply(base));
+    });
   }
 
   // ---------- камера ----------
   _camera(dt) {
+    if (this.view.mode === 'frozen') return; // для отладочных снимков
     const cam = this.camera;
     const tr = this.train;
     const R = this.route;
@@ -781,6 +790,9 @@ export class Game {
       });
     } else this.pool.forEach((l) => { l.intensity = 0; });
     this.train.head.intensity = od ? 2 : 5;
+    // отражения на кузове: карта детальной станции или нейтральная
+    const envSt = o && bd < 200 && o.info.env;
+    this.train.setEnv(envSt || this.defaultEnv, envSt ? 1 : (od ? 1 : lerp(0.25, 0.8, inSt)));
   }
 
   _msg(text, t = 3) { this.ui.message(text); this.msgTimer = t; }
