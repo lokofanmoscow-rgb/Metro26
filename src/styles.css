@@ -131,6 +131,13 @@ button:focus-visible { outline: 2px solid #ffcf3a; outline-offset: 2px; }
 #confirm { z-index: 14; }
 .cf-row { display: flex; gap: 8px; }
 .cf-row .btn { flex: 1; }
+.nojs { background: rgba(214, 51, 42, .14); border: 1px solid rgba(214, 51, 42, .55); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; font-size: 14px; line-height: 1.45; }
+.nojs b { font-size: 16px; display: block; margin-bottom: 4px; }
+.nojs p { margin: 6px 0 0; }
+.nojs .url { color: #ffcf3a; word-break: break-all; -webkit-user-select: text; user-select: text; font-weight: 700; }
+.nojs .muted { color: var(--muted); }
+#app:not(.no-js) #noJs { display: none; }
+#app.no-js .step, #app.no-js .menu-row, #app.no-js #btnStart, #app.no-js .opts { display: none; }
 .disclaimer { color: var(--muted); font-size: 12px; margin: 12px 0 0; line-height: 1.4; }
 #dialog { z-index: 12; }
 .dlg h2 { margin: 0 0 6px; font-size: 22px; }

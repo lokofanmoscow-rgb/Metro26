@@ -10,7 +10,7 @@
 <!--STYLE-->
 </head>
 <body>
-<div id="app">
+<div id="app" class="no-js">
   <canvas id="view"></canvas>
 
   <div id="hud" class="hidden">
@@ -72,6 +72,14 @@
         <div class="logo-m">М</div>
         <div><div class="logo-t">МЕТРО 26</div><div class="logo-s">симулятор машиниста Московского метро</div></div>
       </div>
+      <div class="nojs" id="noJs">
+        <b>Игра не запустилась</b>
+        <p>Файл открыт во встроенном просмотрщике, который показывает страницу, но не выполняет скрипты. Так открываются HTML-файлы из Instagram, Telegram и приложения «Файлы» на iPhone.</p>
+        <p>Откройте игру в Safari или Chrome по ссылке:</p>
+        <p><a class="url" href="https://claude.ai/artifact/K6v9zoCr7Xk97nxW7bLSAk" target="_blank" rel="noopener">https://claude.ai/artifact/K6v9zoCr7Xk97nxW7bLSAk</a></p>
+        <p class="muted">На Android можно установить приложение Metro26.apk.</p>
+      </div>
+      <div class="nojs fatal hidden" id="fatal"><b id="fatalT">Игра не запустилась</b><p id="fatalM"></p></div>
       <div class="step"><div class="step-h">1. Линия</div><div class="lines" id="lineList"></div></div>
       <div class="step"><div class="step-h">2. Направление</div><div class="dirs" id="dirList"></div></div>
       <div class="step"><div class="step-h">3. Поезд</div><div class="trains" id="trainList"></div></div>

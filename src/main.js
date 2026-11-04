@@ -182,7 +182,7 @@ function renderTrains() {
 }
 
 function refreshShowroom() {
-  if (inGame) return;
+  if (inGame || !game) return;
   game.setup({ line: sel.line, dir: sel.dir, train: sel.train, showroom: true });
 }
 
@@ -368,12 +368,35 @@ function openMap() {
 function closeMap() { $('mapPanel').classList.add('hidden'); }
 
 // ---------- запуск ----------
+function fatal(title, msg) {
+  $('fatal').classList.remove('hidden');
+  $('fatalT').textContent = title;
+  $('fatalM').textContent = msg;
+  for (const el of document.querySelectorAll('.step, .menu-row, #btnStart')) el.classList.add('hidden');
+}
+
+function webgl2() {
+  try { const c = document.createElement('canvas'); return !!c.getContext('webgl2'); } catch (e) { return false; }
+}
+
 function boot() {
-  game = new Game($('view'), ui);
+  // скрипты работают: убираем подсказку для просмотрщиков без JavaScript
+  $('app').classList.remove('no-js');
+  // меню заполняем до запуска 3D-графики, чтобы оно работало, даже если графика не стартует
+  renderLines(); renderDirs(); renderTrains();
+  if (!webgl2()) {
+    fatal('Браузер не поддерживает WebGL 2', 'Для 3D-графики нужен браузер с WebGL 2: Safari на iOS 15 и новее, свежий Chrome, Firefox или Edge. Обновите систему или браузер и откройте игру снова.');
+    return () => {};
+  }
+  try {
+    game = new Game($('view'), ui);
+  } catch (e) {
+    fatal('Не удалось запустить 3D-графику', `Браузер отказал в создании WebGL-контекста (${e && e.message ? e.message : e}). Закройте другие вкладки с 3D или перезапустите браузер.`);
+    return () => {};
+  }
   const st = store.read(SET_KEY, null);
   if (st) { hudOn = st.hud !== false; game.applySettings(st); }
   else if (/Android|iPhone|iPad/i.test(navigator.userAgent) || window.AndroidTTS) game.applySettings({ quality: 1 });
-  renderLines(); renderDirs(); renderTrains();
   $('btnStart').onclick = () => startGame();
   $('btnContinue').onclick = () => { const a = saves.all().auto; if (a) { $('optShort').checked = !!a.data.short; startGame(a.data); } };
   $('btnContinue').disabled = !saves.all().auto;
