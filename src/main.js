@@ -33,6 +33,18 @@ let inGame = false;
 let hudOn = true;
 let lastHud = null;
 
+// подтверждение внутри страницы (системные диалоги в просмотрщике недоступны)
+function ask(text, ok = 'Да') {
+  return new Promise((resolve) => {
+    $('cfText').textContent = text;
+    $('cfOk').textContent = ok;
+    $('confirm').classList.remove('hidden');
+    const done = (v) => { $('confirm').classList.add('hidden'); $('cfOk').onclick = $('cfNo').onclick = null; resolve(v); };
+    $('cfOk').onclick = () => done(true);
+    $('cfNo').onclick = () => done(false);
+  });
+}
+
 function lineBadge(l) { return `<span class="ln-badge" style="background:${l.color}">${l.num}</span>`; }
 
 // ---------- UI для Game ----------
@@ -239,8 +251,8 @@ function saveDialog() {
     const e = document.createElement('div');
     e.className = 'slot' + (rec ? '' : ' empty');
     e.innerHTML = `<div style="font-weight:700;width:24px">${i + 1}</div><div class="s-main">${t ? t.html : '<b>Пустой слот</b>'}</div>`;
-    e.onclick = () => {
-      if (rec && !confirm('Перезаписать сохранение?')) return;
+    e.onclick = async () => {
+      if (rec && !(await ask(`Перезаписать сохранение в слоте ${i + 1}?`, 'Перезаписать'))) return;
       const ok = saves.put(i, game.serialize());
       game._msg(ok ? `Игра сохранена в слот ${i + 1}` : 'Не удалось сохранить (хранилище браузера недоступно)');
       $('dialog').classList.add('hidden');
@@ -264,7 +276,7 @@ function loadDialog() {
     const e = document.createElement('div');
     e.className = 'slot';
     e.innerHTML = `<div style="font-weight:700;width:24px">${k === 'auto' ? 'А' : k + 1}</div><div class="s-main">${k === 'auto' ? '<span>автосохранение</span>' : ''}${t.html}</div><button class="btn" title="Удалить">✕</button>`;
-    e.querySelector('button').onclick = (ev) => { ev.stopPropagation(); if (confirm('Удалить сохранение?')) { saves.remove(k); loadDialog(); } };
+    e.querySelector('button').onclick = async (ev) => { ev.stopPropagation(); if (await ask('Удалить это сохранение?', 'Удалить')) { saves.remove(k); loadDialog(); } };
     e.onclick = () => { $('dialog').classList.add('hidden'); $('optShort').checked = !!rec.data.short; startGame(rec.data); };
     body.appendChild(e);
   }
@@ -374,7 +386,7 @@ function boot() {
   $('pMap').onclick = () => { openMap(); };
   $('pSettings').onclick = settingsDialog;
   $('pHelp').onclick = helpDialog;
-  $('pExit').onclick = () => { if (confirm('Выйти в главное меню? Несохранённый прогресс будет потерян (последнее автосохранение останется).')) toMenu(); };
+  $('pExit').onclick = async () => { if (await ask('Выйти в главное меню? Прогресс после последней станции не сохранится — автосохранение делается на каждой остановке.', 'Выйти')) toMenu(); };
   $('mapClose').onclick = closeMap;
   $('mapZoomIn').onclick = () => map.zoomBy(1 / 1.3);
   $('mapZoomOut').onclick = () => map.zoomBy(1.3);
@@ -405,8 +417,12 @@ function boot() {
     if (!inGame && e.code === 'KeyM' && e.target.tagName !== 'INPUT') ui.toggleMap();
   });
   document.body.addEventListener('pointerdown', () => game.sound.init(), { once: true });
-  refreshShowroom();
   window.__game = game;
+  window.claude?.hot?.snapshot?.(() => (inGame && !game.finished ? { save: game.serialize() } : {}));
+  return (data) => {
+    if (data && data.save) { $('optShort').checked = !!data.save.short; startGame(data.save); } else refreshShowroom();
+  };
 }
 
-boot();
+const start = boot();
+if (window.claude?.hot?.ready) window.claude.hot.ready(start); else start(window.claude?.hot?.data ?? {});

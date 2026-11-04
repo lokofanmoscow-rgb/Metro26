@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Метро 26 — машинист</title>
+<title>Метро 26</title>
 <meta name="description" content="Симулятор машиниста Московского метро: кабина, станции, пассажиры, схема метро.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=PT+Sans+Narrow:wght@700&display=swap" rel="stylesheet">
@@ -86,6 +86,7 @@
         <button class="btn" id="btnSettings">Настройки</button>
         <button class="btn" id="btnHelp">Управление</button>
       </div>
+      <p class="disclaimer">Неофициальная фан-игра. Схема — по карте moscowmap.ru, оформление станций — по статьям Википедии.</p>
     </div>
     <div class="menu-info" id="menuInfo"></div>
   </div>
@@ -106,6 +107,7 @@
 
   <div id="dialog" class="screen hidden"><div class="dlg" id="dlgBody"></div></div>
   <div id="finish" class="screen hidden"><div class="dlg" id="finBody"></div></div>
+  <div id="confirm" class="screen hidden"><div class="dlg"><p id="cfText"></p><div class="cf-row"><button class="btn primary" id="cfOk">Да</button><button class="btn" id="cfNo">Отмена</button></div></div></div>
   <div id="loading" class="hidden"><div class="spinner"></div><div id="loadTxt">Строим тоннели…</div></div>
 </div>
 <!--SCRIPT-->
