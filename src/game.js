@@ -8,6 +8,11 @@ import { Train, drawPanel } from './engine/train.js';
 import { Crowd } from './engine/people.js';
 import { Sound } from './engine/audio.js';
 import { releaseTextures } from './engine/textures.js';
+import { HQ, initHQ, captureEnv } from './engine/hq.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { disposeObject, clamp, lerp, fmtTime, mulberry32 } from './engine/util.js';
 import { LINES, TRAINS } from './data/lines.js';
 import { SCHEME } from './data/scheme.js';
@@ -53,6 +58,7 @@ export class Game {
     this.scene.background = new THREE.Color(0x030303);
     this.scene.fog = new THREE.FogExp2(0x050505, 0.012);
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.05, 5000);
+    initHQ(this.renderer);
     this.hemi = new THREE.HemisphereLight(0xfff4e2, 0x4a4238, 0.2);
     this.scene.add(this.hemi);
     this.amb = new THREE.AmbientLight(0xffffff, 0.04);
@@ -71,7 +77,7 @@ export class Game {
     this.sound = new Sound();
     this.crowd = new Crowd(this.scene);
     this.loaded = new Map();
-    this.settings = { volume: 0.8, voice: true, hud: true, short: false, quality: 1.5, sens: 1 };
+    this.settings = { volume: 0.8, voice: true, hud: true, short: false, quality: 1.5, sens: 1, fx: true };
     this.keys = { up: false, down: false };
     this.view = { yaw: 0, pitch: -0.04, mode: 'cab', oyaw: -0.9, opitch: 0.14, odist: 13 };
     this.mode = 'idle';
@@ -84,9 +90,30 @@ export class Game {
     this.renderer.setAnimationLoop(() => this._frame());
   }
 
+  // постобработка: свечение ламп (bloom); отражения пола включаются вместе с ней
+  _setupFx() {
+    HQ.fx = !!this.settings.fx;
+    if (this.settings.fx && !this.composer) {
+      const c = new EffectComposer(this.renderer);
+      c.addPass(new RenderPass(this.scene, this.camera));
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.55, 0.45, 1.0);
+      c.addPass(this.bloom);
+      c.addPass(new OutputPass());
+      this.composer = c;
+    } else if (!this.settings.fx && this.composer) {
+      this.composer.dispose();
+      this.composer = null;
+    }
+    if (this.composer) {
+      this.composer.setPixelRatio(this.renderer.getPixelRatio());
+      this.composer.setSize(window.innerWidth, window.innerHeight);
+    }
+  }
+
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
+    if (this.composer) { this.composer.setPixelRatio(this.renderer.getPixelRatio()); this.composer.setSize(w, h); }
     this.camera.aspect = w / h;
     this._applyFov();
   }
@@ -106,6 +133,7 @@ export class Game {
     this.sound.setVolume(this.settings.volume);
     this.sound.voice = this.settings.voice;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.settings.quality));
+    this._setupFx();
     this.resize();
   }
 
@@ -177,6 +205,10 @@ export class Game {
 
   _unloadItem(it) {
     this.scene.remove(it.obj);
+    if (it.built && it.built.info) {
+      if (it.built.info.reflector && it.built.info.reflector.dispose) it.built.info.reflector.dispose();
+      if (it.built.info.env) it.built.info.env.dispose();
+    }
     disposeObject(it.obj);
     if (it.kind === 'st') releaseTextures(it.st.name);
   }
@@ -231,6 +263,8 @@ export class Game {
     it.obj = obj;
     this.scene.add(obj);
     this.loaded.set(key, it);
+    // детальные станции: снимаем карту окружения для отражений мрамора и рассеянного света
+    if (it.kind === 'st' && it.built.info.hq) { try { captureEnv(this.renderer, this.scene, it.built); } catch (e) { console.warn('env', e); } }
   }
 
   _stream(sync = false) {
@@ -463,7 +497,24 @@ export class Game {
     this._camera(dt);
     this._updateLights(dt);
     this._stream(false);
-    this.renderer.render(this.scene, this.camera);
+    this._reflectors();
+    if (this.composer) this.composer.render(); else this.renderer.render(this.scene, this.camera);
+  }
+
+  // отражающие полы рисуются только рядом с камерой (каждое отражение — ещё один проход рендера)
+  _reflectors() {
+    const cp = this.camera.position;
+    let best = null, bd = 1e9;
+    for (const [, it] of this.loaded) {
+      const r = it.built && it.built.info.reflector;
+      if (!r) continue;
+      r.visible = false;
+      const d = it.obj.position.distanceTo(cp);
+      const c = new THREE.Vector3().setFromMatrixPosition(it.obj.matrixWorld);
+      const dd = Math.min(d, c.distanceTo(cp));
+      if (dd < bd) { bd = dd; best = r; }
+    }
+    if (best && HQ.fx && bd < 150) best.visible = true;
   }
 
   _menuTick(dt) {
@@ -691,6 +742,8 @@ export class Game {
       p.z = clamp(p.z, -83.2, 83);
       const headZ = near ? near.st.c - this.s : -78;
       p.x = clamp(p.x, near ? near.obj.info.oppX + 1.6 : -14, p.z < headZ - 1.2 ? 1.9 : -1.75);
+      // не ставим камеру внутрь пилонов
+      if (near && near.obj.info.noCam) for (const [a0, a1] of near.obj.info.noCam) if (p.x > a0 && p.x < a1) p.x = (p.x - a0 < a1 - p.x) ? a0 : a1;
       cam.position.copy(p).applyMatrix4(M);
       cam.lookAt(target.clone().applyMatrix4(M));
     }
@@ -704,7 +757,8 @@ export class Game {
     const inSt = clamp(1 - bd / 70, 0, 1);
     const od = R.outdoorAt(s);
     const outF = od ? 1 : 0;
-    this.hemi.intensity = lerp(0.12, 1.05, inSt) + outF * 1.0;
+    const hqInfo = best && this._stationObj(best.k)?.info;
+    this.hemi.intensity = lerp(0.12, hqInfo && hqInfo.hq ? (hqInfo.hemi || 0.5) : 1.05, inSt) + outF * 1.0;
     this.sun.intensity = outF * 1.4;
     const fogD = outF ? 0.0011 : lerp(0.011, 0.0035, inSt);
     this.scene.fog.density = force ? fogD : lerp(this.scene.fog.density, fogD, Math.min(1, dt * 3));
@@ -722,7 +776,7 @@ export class Game {
       const cp = this.camera.position;
       const pts = ls.map((l) => l.clone().applyMatrix4(M)).sort((a, b) => a.distanceToSquared(cp) - b.distanceToSquared(cp));
       this.pool.forEach((l, i) => {
-        if (i < pts.length) { l.position.copy(pts[i]); l.intensity = 26 * (best.style.t === 'ground' || best.style.t === 'bridge' ? 0.4 : 1); }
+        if (i < pts.length) { l.position.copy(pts[i]); l.intensity = (o.info.hq ? (o.info.poolI || 18) : 26) * (best.style.t === 'ground' || best.style.t === 'bridge' ? 0.4 : 1); }
         else l.intensity = 0;
       });
     } else this.pool.forEach((l) => { l.intensity = 0; });

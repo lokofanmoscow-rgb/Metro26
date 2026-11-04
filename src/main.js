@@ -5,6 +5,7 @@ import { SCHEME } from './data/scheme.js';
 import { LINES, PLAYABLE, TRAINS } from './data/lines.js';
 import { LIVERY } from './engine/train.js';
 import { fmtTime } from './engine/util.js';
+import { loadHQ } from './engine/hq.js';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'metro26.saves.v1';
@@ -294,12 +295,13 @@ function settingsDialog() {
     <label class="chk"><input type="checkbox" id="sHud" ${hudOn ? 'checked' : ''}> показывать приборы на экране (H)</label>
     <div class="row"><span>Качество графики</span><select id="sQ">
       <option value="0.75">низкое</option><option value="1">среднее</option><option value="1.5">высокое</option><option value="2">максимальное</option></select></div>
+    <label class="chk"><input type="checkbox" id="sFx" ${s.fx ? 'checked' : ''}> эффекты: свечение ламп и отражения в полу</label>
     <div class="row"><span>Чувствительность мыши</span><input type="range" id="sSens" min="0.3" max="2.5" step="0.1" value="${s.sens}"></div>`;
   body.querySelector('#sQ').value = String(s.quality);
   const apply = () => {
     hudOn = body.querySelector('#sHud').checked;
     if (inGame) $('hud').classList.toggle('hidden', !hudOn);
-    game.applySettings({ volume: +body.querySelector('#sVol').value, voice: body.querySelector('#sVoice').checked, quality: +body.querySelector('#sQ').value, sens: +body.querySelector('#sSens').value });
+    game.applySettings({ volume: +body.querySelector('#sVol').value, voice: body.querySelector('#sVoice').checked, quality: +body.querySelector('#sQ').value, sens: +body.querySelector('#sSens').value, fx: body.querySelector('#sFx').checked });
     store.write(SET_KEY, { ...game.settings, hud: hudOn });
   };
   body.querySelectorAll('input,select').forEach((e) => { e.oninput = apply; e.onchange = apply; });
@@ -396,7 +398,9 @@ function boot() {
   }
   const st = store.read(SET_KEY, null);
   if (st) { hudOn = st.hud !== false; game.applySettings(st); }
-  else if (/Android|iPhone|iPad/i.test(navigator.userAgent) || window.AndroidTTS) game.applySettings({ quality: 1 });
+  else if (/Android|iPhone|iPad/i.test(navigator.userAgent) || window.AndroidTTS) game.applySettings({ quality: 1, fx: false });
+  // фото-текстуры детальных станций декодируются в фоне
+  loadHQ();
   $('btnStart').onclick = () => startGame();
   $('btnContinue').onclick = () => { const a = saves.all().auto; if (a) { $('optShort').checked = !!a.data.short; startGame(a.data); } };
   $('btnContinue').disabled = !saves.all().auto;

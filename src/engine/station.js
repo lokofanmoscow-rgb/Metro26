@@ -6,6 +6,7 @@ import { wallTexture, floorTexture, ceilingTexture, columnTexture, pylonTexture,
 import { sharedMats, TUBE_R, TUBE_CY, BED_Y, BOX_W, BOX_TOP } from './tunnel.js';
 import { mergeGeoms, boxGeom, cylGeom, shade, mulberry32, hashStr, makeCanvas, canvasTex } from './util.js';
 import { HALL_HALF, STOP_OFFSET } from './route.js';
+import { HQ, HQ_BUILDERS } from './hq.js';
 
 export const EDGE_X = -1.48;
 export const PLAT_Y = 1.1;
@@ -211,6 +212,9 @@ export function buildStation(route, st, line) {
   const t = style.t;
   const deep = !!style.deep;
   const info = { spots: [], exits: [], lights: [], signal: null, clock: null, oppX: 0 };
+  // детальная модель станции по фотографиям (если есть и текстуры загружены)
+  const hq = style.hq && HQ.ready && HQ.renderer ? HQ_BUILDERS[style.hq] : null;
+  info.hq = !!hq;
 
   // геометрия поперечника по типу
   let W = 10; // ширина платформы
@@ -242,7 +246,7 @@ export function buildStation(route, st, line) {
   grp.add(new THREE.Mesh(mergeGeoms([planeY(BED_Y, EDGE_X, rightWall, -HZ, HZ), planeY(BED_Y, leftWall, xFar, -HZ, HZ)]), pitMat));
 
   // платформа
-  grp.add(new THREE.Mesh(planeY(PLAT_Y, xFar, EDGE_X, -PL, PL), floorMat));
+  if (!hq) grp.add(new THREE.Mesh(planeY(PLAT_Y, xFar, EDGE_X, -PL, PL), floorMat));
   const edgeG = [planeY(PLAT_Y + 0.003, EDGE_X - 0.35, EDGE_X, -PL, PL, true, 1, 1), planeY(PLAT_Y + 0.003, xFar, xFar + 0.35, -PL, PL, true, 1, 1)];
   grp.add(new THREE.Mesh(mergeGeoms(edgeG), edgeMat));
   grp.add(new THREE.Mesh(mergeGeoms([
@@ -253,7 +257,7 @@ export function buildStation(route, st, line) {
   if (style.y >= 2010) grp.add(new THREE.Mesh(mergeGeoms([planeY(PLAT_Y + 0.005, EDGE_X - 0.95, EDGE_X - 0.6, -PL, PL, true, 1, 1), planeY(PLAT_Y + 0.005, xFar + 0.6, xFar + 0.95, -PL, PL, true, 1, 1)]), new THREE.MeshLambertMaterial({ color: 0xe8c22a, emissive: 0x3a3008 })));
 
   // путевые стены
-  if (t !== 'ground' && t !== 'bridge') {
+  if (t !== 'ground' && t !== 'bridge' && !hq) {
     const top = (t === 'pylon' || t === 'cold') ? 4.2 : t === 'vault' ? 3.4 : yC;
     grp.add(new THREE.Mesh(mergeGeoms([wallX(rightWall, BED_Y - 0.4, top, -HZ, HZ, -1), wallX(leftWall, BED_Y - 0.4, top, -HZ, HZ, 1)]), wallMat));
   }
@@ -262,7 +266,9 @@ export function buildStation(route, st, line) {
   const lampsP = [];
   const lampGeom = { strip: new THREE.BoxGeometry(0.25, 0.05, 2.6), ball: new THREE.SphereGeometry(0.28, 12, 8), led: new THREE.BoxGeometry(0.12, 0.04, 6) };
 
-  if (t === 'col' || t === 'span' || t === 'ground' || t === 'bridge') {
+  if (hq) hq(grp, { PLAT_Y, EDGE_X, xFar, oppX, rightWall, leftWall, PL, HZ, BED_Y, info, style, yC });
+
+  if (!hq && (t === 'col' || t === 'span' || t === 'ground' || t === 'bridge')) {
     // потолок
     if (t === 'ground' || t === 'bridge') {
       buildShed(grp, style, rightWall, leftWall, yC, t);
@@ -319,7 +325,7 @@ export function buildStation(route, st, line) {
     if (t !== 'col') for (let z = -PL + 10; z < PL; z += 16) info.spots.push({ x: xm, z });
   }
 
-  if (t === 'pylon' || t === 'cold') {
+  if (!hq && (t === 'pylon' || t === 'cold')) {
     // боковые залы — своды
     const xPy0 = -4.3, xPy1 = -7.0; // пилоны со стороны нашего пути
     const xc = (rightWall + xPy0) / 2, rS = (rightWall - xPy0) / 2;
@@ -381,7 +387,7 @@ export function buildStation(route, st, line) {
     grp.add(new THREE.Mesh(mergeGeoms(bench), new THREE.MeshLambertMaterial({ color: 0x5a3d28 })));
   }
 
-  if (t === 'vault') {
+  if (!hq && t === 'vault') {
     const xc = (rightWall + leftWall) / 2, rx = (rightWall - leftWall) / 2;
     const v = arc(xc, 3.4, rx, 4.6, 0, Math.PI, 36);
     grp.add(new THREE.Mesh(profileZ(v, -HZ, HZ, 4, 4), ceilMat));
@@ -404,7 +410,7 @@ export function buildStation(route, st, line) {
 
   // торцевые стены с проёмами тоннелей
   if (t !== 'ground' && t !== 'bridge') {
-    const topY = (t === 'pylon' || t === 'cold') ? 9.5 : t === 'vault' ? 8.2 : yC;
+    const topY = Math.max((t === 'pylon' || t === 'cold') ? 9.5 : t === 'vault' ? 8.2 : yC, hq && info.ceilY ? info.ceilY + 0.3 : 0);
     const endMat = mat(concreteTexture(shade(style.w, -0.1).slice(0, 7)), 0.4, { side: THREE.DoubleSide });
     endMat.color = new THREE.Color(style.wp === 'glass' ? '#cccccc' : style.w);
     grp.add(new THREE.Mesh(mergeGeoms([
@@ -481,11 +487,13 @@ export function buildStation(route, st, line) {
 
   // позиции точечных светильников для пула освещения
   const xm = (EDGE_X + xFar) / 2;
-  for (let z = -PL + 15; z < PL; z += 33) info.lights.push(new THREE.Vector3(xm, yC - 0.6, z), new THREE.Vector3(1.0, Math.min(yC, 5) - 0.6, z + 12));
+  if (!hq) for (let z = -PL + 15; z < PL; z += 33) info.lights.push(new THREE.Vector3(xm, yC - 0.6, z), new THREE.Vector3(1.0, Math.min(yC, 5) - 0.6, z + 12));
   info.platform = { x0: xFar + 0.6, x1: EDGE_X - 0.5, z0: -PL + 3, z1: PL - 3, y: PLAT_Y };
+  // полосы, куда нельзя ставить камеру «вид снаружи» (толща пилонов)
+  info.noCam = (t === 'pylon' || t === 'cold') ? [[-7.15, -4.15], [xFar + 2.55, xFar + 5.55]] : [];
   info.colRows = colRows;
   info.W = W;
-  info.ceilY = yC;
+  if (!hq) info.ceilY = yC;
 
   grp.applyMatrix4(route.matrixAt(st.c, new THREE.Matrix4(), true));
   grp.updateMatrixWorld(true);
