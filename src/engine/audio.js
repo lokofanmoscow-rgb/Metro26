@@ -1,3 +1,4 @@
+import VOICE from '../assets/voice.json';
 // Звуки поезда (WebAudio) и голосовые объявления.
 // Звук собран из шумовых источников через фильтры (а не из «чистых» генераторов):
 // качение колёс, зубчатая передача, тяговые двигатели, реостатный контроллер у 81-717,
@@ -313,8 +314,56 @@ export class Sound {
     o.connect(g); g.connect(this.dry); o.start(t); o.stop(t + dur + 0.05);
   }
 
-  say(text, { male = true, rate = 1.0 } = {}) {
+  // Записанные объявления (работают везде, в том числе во встроенных браузерах без синтеза речи)
+  async _clip(text) {
+    if (!VOICE[text] || !this.ctx) return null;
+    this._clips = this._clips || new Map();
+    if (this._clips.has(text)) return this._clips.get(text);
+    const bin = atob(VOICE[text]);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    const p = new Promise((res) => { try { this.ctx.decodeAudioData(buf.buffer, res, () => res(null)); } catch (e) { res(null); } });
+    this._clips.set(text, p);
+    return p;
+  }
+
+  _pa() {
+    // вагонный громкоговоритель: полоса 250–4000 Гц, лёгкая компрессия и отражения салона
+    if (this.paIn) return this.paIn;
+    const ctx = this.ctx;
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 250;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 4200;
+    const pk = ctx.createBiquadFilter(); pk.type = 'peaking'; pk.frequency.value = 1800; pk.gain.value = 4; pk.Q.value = 0.8;
+    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -24; comp.ratio.value = 4;
+    const g = ctx.createGain(); g.gain.value = 1.6;
+    hp.connect(lp); lp.connect(pk); pk.connect(comp); comp.connect(g);
+    g.connect(this.out);
+    const send = ctx.createGain(); send.gain.value = 0.18; g.connect(send); send.connect(this.rev);
+    this.paIn = hp;
+    return hp;
+  }
+
+  async _playClips(texts) {
+    const token = (this._sayToken = (this._sayToken || 0) + 1);
+    if (this._sayNode) try { this._sayNode.stop(); } catch (e) { /* */ }
+    let t = this.ctx.currentTime + 0.05;
+    for (const text of texts) {
+      const b = await this._clip(text);
+      if (token !== this._sayToken || !this.active) return;
+      if (!b) continue;
+      const src = this.ctx.createBufferSource(); src.buffer = b;
+      src.connect(this._pa());
+      t = Math.max(t, this.ctx.currentTime + 0.02);
+      src.start(t); this._sayNode = src;
+      t += b.duration + 0.25;
+    }
+  }
+
+  say(text, { male = true, rate = 1.0, then = null } = {}) {
     if (!this.voice) return;
+    const list = then ? [text, then] : [text];
+    if (this.ctx && list.every((x) => VOICE[x])) { this._playClips(list); return; }
+    if (then) text += ' ' + then;
     // в приложении для Android объявления читает системный синтезатор речи
     if (window.AndroidTTS && window.AndroidTTS.speak) { try { window.AndroidTTS.speak(text, male ? 1 : 0); } catch (e) { /* */ } return; }
     if (!window.speechSynthesis) return;
@@ -332,6 +381,8 @@ export class Sound {
   }
 
   stopAll() {
+    this._sayToken = (this._sayToken || 0) + 1;
+    if (this._sayNode) try { this._sayNode.stop(); } catch (e) { /* */ }
     if (window.AndroidTTS && window.AndroidTTS.stop) try { window.AndroidTTS.stop(); } catch (e) { /* */ }
     if (window.speechSynthesis) try { window.speechSynthesis.cancel(); } catch (e) { /* */ }
   }

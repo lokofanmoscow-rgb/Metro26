@@ -20,7 +20,7 @@ export function bakedMaterial(params = {}) {
 
 // Протяжка 2D-сечения (точки {x,y} в локальной системе: x вправо, y вверх)
 // вдоль трассы от s0 до s1. u — по сечению (м / uScale), v — по длине (м / vScale).
-export function sweep(route, s0, s1, profile, { step = 2, uScale = 1, vScale = 1, bake = null, closed = false, frames = null } = {}) {
+export function sweep(route, s0, s1, profile, { step = 2, uScale = 1, vScale = 1, bake = null, closed = false, frames = null, shift = null } = {}) {
   const n = Math.max(2, Math.ceil((s1 - s0) / step) + 1);
   const m = profile.length;
   const pos = new Float32Array(n * m * 3);
@@ -40,8 +40,9 @@ export function sweep(route, s0, s1, profile, { step = 2, uScale = 1, vScale = 1
   for (let i = 0; i < n; i++) {
     const s = s0 + (s1 - s0) * (i / (n - 1));
     if (frames) frames(s, f); else route.frameAt(s, f);
+    const sx = shift ? shift(s) : 0;
     for (let j = 0; j < m; j++) {
-      const p = profile[j];
+      const p = sx ? { x: profile[j].x + sx, y: profile[j].y } : profile[j];
       const k = (i * m + j);
       pos[k * 3] = f.pos.x + f.right.x * p.x + f.up.x * p.y;
       pos[k * 3 + 1] = f.pos.y + f.right.y * p.x + f.up.y * p.y;

@@ -67,7 +67,7 @@ function buildings(route, s0, s1, rng, step) {
 // Портал тоннеля: стенка с проёмом и насыпь/склон над тоннелем
 export function buildPortal(route, s, facingForward, cut) {
   const Z = cut.zone || {};
-  if (Z.osm && Z.kind === 'open') return osmPortal(route, s, facingForward, Z.oppX);
+  if (Z.osm && Z.kind === 'open') return osmPortal(route, s, facingForward, Z.oppX, Z.pd <= 0.5);
   const kind = cut.out, ox = Z.oppX ?? OPP_X;
   const grp = new THREE.Group();
   const sh = new THREE.Shape();
@@ -80,19 +80,26 @@ export function buildPortal(route, s, facingForward, cut) {
   grp.add(new THREE.Mesh(g, m));
   // склон над тоннелем
   const dir = facingForward ? -1 : 1; // склон уходит в сторону тоннеля
-  const hill = new THREE.Mesh(boxGeom(W + 30, 23, 60, ox / 2, -2.5, dir * 30.1), new THREE.MeshLambertMaterial({ map: grassTexture(), color: kind === 'bridge' ? 0x6f8f55 : 0x7f9a5a }));
-  hill.material.map.repeat.set(8, 8);
-  grp.add(hill);
+  // склон без передней грани (она закрывала бы проёмы тоннелей)
+  const gm = new THREE.MeshLambertMaterial({ map: grassTexture(), color: kind === 'bridge' ? 0x6f8f55 : 0x7f9a5a });
+  gm.map.repeat.set(8, 8);
+  const hide = new THREE.MeshBasicMaterial({ visible: false });
+  const mats = [gm, gm, gm, gm, gm, gm];
+  mats[dir > 0 ? 5 : 4] = hide;
+  grp.add(new THREE.Mesh(boxGeom(W + 30, 23, 60, ox / 2, -2.5, dir * 30.1), mats));
+  // встречный тоннель: тёмный тюбинг за проёмом
+  const dark = new THREE.MeshLambertMaterial({ color: 0x24221f, side: THREE.DoubleSide });
+  grp.add(new THREE.Mesh(new THREE.CylinderGeometry(TUBE_R, TUBE_R, 60, 24, 1, true).rotateX(Math.PI / 2).translate(ox, TUBE_CY, dir * 30), dark));
   grp.applyMatrix4(route.matrixAt(s, new THREE.Matrix4(), true));
   return grp;
 }
 
 // Портал двухпутного тоннеля в торце выемки (путь ниже уровня земли)
-function osmPortal(route, s, facingForward, ox) {
+function osmPortal(route, s, facingForward, ox, hill = false) {
   const grp = new THREE.Group();
   const gy = GROUND_Y - route.y(s); // земля над порталом (локально)
-  const xr = 3.0, xl = ox - 3.0, top = Math.min(4.9, gy - 0.4);
-  const X0 = ox - 3.6 - 14, X1 = 3.6 + 14, Y0 = -1.0, Y1 = gy + 0.9;
+  const xr = 3.0, xl = ox - 3.0, top = hill ? 4.9 : Math.min(4.9, gy - 0.4);
+  const X0 = ox - 3.6 - 14, X1 = 3.6 + 14, Y0 = hill ? gy - 0.5 : -1.0, Y1 = hill ? 7.0 : gy + 0.9;
   const sh = new THREE.Shape();
   sh.moveTo(X0, Y0); sh.lineTo(X1, Y0); sh.lineTo(X1, Y1); sh.lineTo(X0, Y1); sh.lineTo(X0, Y0);
   const h = new THREE.Path(); h.moveTo(xl, -0.7); h.lineTo(xr, -0.7); h.lineTo(xr, top); h.lineTo(xl, top); h.lineTo(xl, -0.7); sh.holes.push(h);
@@ -120,11 +127,33 @@ function osmPortal(route, s, facingForward, ox) {
   if (deep) hole.absarc(0, TUBE_CY, TUBE_R - 0.02, 0, Math.PI * 2, true);
   else { hole.moveTo(-2.06, BED_Y - 0.2); hole.lineTo(2.06, BED_Y - 0.2); hole.lineTo(2.06, 4.23); hole.lineTo(-2.06, 4.23); hole.lineTo(-2.06, BED_Y - 0.2); }
   bs.holes.push(hole);
+  // проём встречного тоннеля
+  const oh = new THREE.Path(), oa = ox - 1.9, ob = Math.min(ox + 1.9, deep ? -TUBE_R - 0.1 : -2.2);
+  oh.moveTo(oa, BED_Y - 0.2); oh.lineTo(ob, BED_Y - 0.2); oh.lineTo(ob, 4.2); oh.lineTo(oa, 4.2); oh.lineTo(oa, BED_Y - 0.2);
+  bs.holes.push(oh);
   const back = new THREE.Mesh(new THREE.ShapeGeometry(bs, 24), dark);
   back.position.z = dir * D;
   grp.add(back);
   grp.applyMatrix4(route.matrixAt(s, new THREE.Matrix4(), true));
-  return grp;
+  // встречный путь уходит в свой тоннель
+  const a0 = facingForward ? s + D - 0.5 : s - D - 120, a1 = facingForward ? s + D + 120 : s - D + 0.5;
+  const tm = new THREE.MeshLambertMaterial({ color: 0x2c2a26, side: THREE.DoubleSide });
+  if (hill) {
+    // путь выходит из тоннеля на уровне земли: портал врезан в насыпной холм (без передней грани)
+    const gm = new THREE.MeshLambertMaterial({ map: grassTexture(), color: 0x7f9a5a });
+    gm.map.repeat.set(8, 8);
+    const mats = [gm, gm, gm, gm, gm, gm];
+    mats[dir > 0 ? 5 : 4] = new THREE.MeshBasicMaterial({ visible: false });
+    const hb = new THREE.Mesh(boxGeom(X1 - X0 + 16, 21, 70, (X0 + X1) / 2, gy + 10.5 - 4, dir * 35.05), mats);
+    hb.applyMatrix4(route.matrixAt(s, new THREE.Matrix4(), true));
+    grp.userData.hill = hb;
+  }
+  const outer = new THREE.Group();
+  outer.add(grp);
+  if (grp.userData.hill) outer.add(grp.userData.hill);
+  outer.add(new THREE.Mesh(sweep(route, a0, a1, [{ x: oa, y: BED_Y - 0.2 }, { x: oa, y: 4.2 }, { x: ob, y: 4.2 }, { x: ob, y: BED_Y - 0.2 }], { step: 4 }), tm));
+  outer.add(oppTrack(route, a0, a1, ox));
+  return outer;
 }
 
 // Окружение всего открытого участка (строится один раз на зону)
@@ -263,9 +292,11 @@ export function buildOutdoorChunk(route, s0, s1, zone) {
         const u = cuts[i], v = cuts[i + 1];
         if (v - u < 0.5) continue;
         const onBridge = br.some(([x, y]) => (u + v) / 2 > x && (u + v) / 2 < y);
+        const OF = Z.oppAt || (() => OX);
+        const varies = Math.abs(OF(u) - OX) > 0.01 || Math.abs(OF(v) - OX) > 0.01 || Math.abs(OF((u + v) / 2) - OX) > 0.01;
         grp.add(buildTrack(route, u, v, { bed: false }));
-        grp.add(oppTrack(route, u, v, OX));
-        grp.add(onBridge ? openBridge(route, u, v, OX) : embankment(route, u, v, OX));
+        grp.add(oppTrack(route, u, v, varies ? OF : OX));
+        grp.add(onBridge ? openBridge(route, u, v, Math.min(OF(u), OF(v), OF((u + v) / 2))) : embankment(route, u, v, varies ? OF : OX));
       }
     }
     return grp;
@@ -324,44 +355,45 @@ function ribbon(route, s0, s1, step, fn, uScale = 2) {
 }
 
 // Насыпь (путь выше земли) или выемка с подпорными стенками (рампа к порталу)
-function embankment(route, s0, s1, OX) {
+function embankment(route, s0, s1, OXv) {
   const grp = new THREE.Group();
+  const O = typeof OXv === 'function' ? OXv : () => OXv;
   const bal = new THREE.MeshLambertMaterial({ map: ballastTexture(), side: THREE.DoubleSide });
   // уровень земли в локальной системе пути
   const gy = (s) => GROUND_Y - route.y(s);
   const H = (s) => -0.62 - gy(s); // > 0 — насыпь, < 0 — выемка
-  const xr = 2.6, xl = OX - 2.6;
-  grp.add(new THREE.Mesh(sweep(route, s0, s1, [{ x: xl, y: -0.62 }, { x: OX - 1.8, y: -0.3 }, { x: 1.8, y: -0.3 }, { x: xr, y: -0.62 }], { step: 4, uScale: 2, vScale: 2 }), bal));
+  const xr = 2.6, XL = (s) => O(s) - 2.6;
+  grp.add(new THREE.Mesh(ribbon(route, s0, s1, 3, (s) => [[XL(s), -0.62], [O(s) - 1.8, -0.3], [1.8, -0.3], [xr, -0.62]]), bal));
   // откосы насыпи (травяные)
   const gm = new THREE.MeshLambertMaterial({ map: grassTexture(), color: 0x9aa880, side: THREE.DoubleSide });
   const slope = (s) => Math.max(0, H(s)) * 1.6;
   grp.add(new THREE.Mesh(mergeGeoms([
     ribbon(route, s0, s1, 4, (s) => [[xr, -0.62], [xr + 0.3 + slope(s), Math.min(-0.62, gy(s))]]),
-    ribbon(route, s0, s1, 4, (s) => [[xl - 0.3 - slope(s), Math.min(-0.62, gy(s))], [xl, -0.62]]),
+    ribbon(route, s0, s1, 4, (s) => [[XL(s) - 0.3 - slope(s), Math.min(-0.62, gy(s))], [XL(s), -0.62]]),
   ]), gm));
   // выемка: дно и подпорные стенки с парапетом
   const cutH = (s) => Math.max(0, -H(s));
-  const wr = xr + 1.0, wl = xl - 1.0;
+  const wr = xr + 1.0, WL = (s) => XL(s) - 1.0;
   if ([s0, (s0 + s1) / 2, s1].some((s) => cutH(s) > 0.05)) {
     const conc = new THREE.MeshLambertMaterial({ map: concreteTexture('#a29d93'), side: THREE.DoubleSide });
     const top = (s) => (cutH(s) > 0.05 ? gy(s) + 0.9 : -0.62);
     grp.add(new THREE.Mesh(mergeGeoms([
-      ribbon(route, s0, s1, 4, (s) => [[wl, -0.65], [xl, -0.64]]),
+      ribbon(route, s0, s1, 4, (s) => [[WL(s), -0.65], [XL(s), -0.64]]),
       ribbon(route, s0, s1, 4, (s) => [[xr, -0.64], [wr, -0.65]]),
       ribbon(route, s0, s1, 4, (s) => [[wr, -0.65], [wr, top(s)], [wr + 0.35, top(s)], [wr + 0.35, Math.min(top(s), gy(s) + 0.05)]], 3),
-      ribbon(route, s0, s1, 4, (s) => [[wl - 0.35, Math.min(top(s), gy(s) + 0.05)], [wl - 0.35, top(s)], [wl, top(s)], [wl, -0.65]], 3),
+      ribbon(route, s0, s1, 4, (s) => [[WL(s) - 0.35, Math.min(top(s), gy(s) + 0.05)], [WL(s) - 0.35, top(s)], [WL(s), top(s)], [WL(s), -0.65]], 3),
     ]), conc));
   }
   // ограждение полосы отвода по бровке
   const post = new THREE.MeshLambertMaterial({ color: 0x4a4c4a });
   const fx = (s) => (cutH(s) > 0.05 ? wr + 1.2 : xr + 1.5 + slope(s));
   const fy = (s) => Math.max(gy(s), -0.62);
-  const fence = instancesAlong(route, s0, s1, 3, new THREE.BoxGeometry(0.06, 2.0, 0.06).translate(0, 1, 0), post, (s) => [{ x: fx(s), y: fy(s) }, { x: OX - fx(s), y: fy(s) }]);
+  const fence = instancesAlong(route, s0, s1, 3, new THREE.BoxGeometry(0.06, 2.0, 0.06).translate(0, 1, 0), post, (s) => [{ x: fx(s), y: fy(s) }, { x: O(s) - fx(s), y: fy(s) }]);
   if (fence) grp.add(fence);
   const net = new THREE.MeshLambertMaterial({ color: 0x8a9a8a, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false });
   grp.add(new THREE.Mesh(mergeGeoms([
     ribbon(route, s0, s1, 6, (s) => [[fx(s), fy(s)], [fx(s), fy(s) + 2]]),
-    ribbon(route, s0, s1, 6, (s) => [[OX - fx(s), fy(s)], [OX - fx(s), fy(s) + 2]]),
+    ribbon(route, s0, s1, 6, (s) => [[O(s) - fx(s), fy(s)], [O(s) - fx(s), fy(s) + 2]]),
   ]), net));
   // опоры контактной сети здесь не нужны (третий рельс); столбы освещения
   const lampM = new THREE.MeshLambertMaterial({ color: 0x6b6e70 });
@@ -413,12 +445,15 @@ function openBridge(route, s0, s1, OX) {
 }
 
 function oppTrack(route, s0, s1, OPP_X = -12.96) {
-  // встречный путь — смещён на OPP_X
+  // встречный путь — смещён на OPP_X (число или функция от s)
   const m = sharedMats();
   const g2 = new THREE.Group();
+  const fx = typeof OPP_X === 'function' ? OPP_X : null;
+  const x0 = fx ? 0 : OPP_X;
+  const shift = fx ? (s) => fx(s) : null;
   const prof = (x) => [{ x: x - 0.07, y: -0.16 }, { x: x + 0.07, y: -0.16 }, { x: x + 0.036, y: 0 }, { x: x - 0.036, y: 0 }];
-  for (const x of [OPP_X - 0.762, OPP_X + 0.762]) g2.add(new THREE.Mesh(sweep(route, s0, s1, prof(x), { step: 4, closed: true }), m.rail));
-  const sleep = instancesAlong(route, s0, s1, 0.75, new THREE.BoxGeometry(2.3, 0.13, 0.24), m.sleeper, () => [{ x: OPP_X, y: -0.22 }]);
+  for (const x of [x0 - 0.762, x0 + 0.762]) g2.add(new THREE.Mesh(sweep(route, s0, s1, prof(x), { step: fx ? 2 : 4, closed: true, shift }), m.rail));
+  const sleep = instancesAlong(route, s0, s1, 0.75, new THREE.BoxGeometry(2.3, 0.13, 0.24), m.sleeper, (s) => [{ x: fx ? fx(s) : OPP_X, y: -0.22 }]);
   if (sleep) g2.add(sleep);
   return g2;
 }

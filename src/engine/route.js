@@ -61,13 +61,29 @@ export class Route {
         const poly = trackPolyline(o.osm, !!o.rev !== (dir === 1));
         const c = toRoute(cf[byName[o.anchor]]);
         const s0 = c - poly.station;
-        return { s0, s1: s0 + poly.length, kind: o.kind, osm: o.osm, poly, oppX: o.kind === 'open' ? -poly.spacing : -12.96, rev: !!o.rev !== (dir === 1) };
+        return { s0, s1: s0 + poly.length, kind: o.kind, osm: o.osm, poly, oppX: o.kind === 'open' ? -poly.spacing : -12.96, rev: !!o.rev !== (dir === 1), pd: o.portal ?? PORTAL_D, rise: o.rise ?? BRIDGE_RISE };
       }
       const a = toRoute(cf[byName[o.from[0]]] + o.from[1]);
       const b = toRoute(cf[byName[o.to[0]]] + o.to[1]);
       return { s0: Math.min(a, b), s1: Math.max(a, b), kind: o.kind, oppX: -12.96 };
     });
     this.polyZones = this.outdoor.filter((o) => o.poly);
+    // на открытом участке у станции с островной платформой встречный путь отходит на ширину платформы
+    for (const o of this.polyZones) {
+      const isl = this.stations.filter((st) => st.c > o.s0 && st.c < o.s1 && st.style.t !== 'side' && st.style.t !== 'bridge');
+      const base = o.oppX;
+      if (!isl.length || o.kind !== 'open') { o.oppAt = () => base; continue; }
+      const X = -12.96, B = 110;
+      o.oppAt = (s) => {
+        let v = base;
+        for (const st of isl) {
+          const d = Math.abs(s - st.c) - HALL_HALF;
+          const t = d <= 0 ? 0 : d >= B ? 1 : ease(d / B, 0.5);
+          v = Math.min(v, X + (base - X) * t);
+        }
+        return v;
+      };
+    }
     this._buildPlan();
     this._buildProfile();
     this._buildZones();
@@ -225,17 +241,18 @@ export class Route {
   _openProfile(o, portal0, portal1, ctrl) {
     const L = o.s1 - o.s0;
     const G = 0.035;
-    const r0 = portal0 ? PORTAL_D : 0, r1 = portal1 ? PORTAL_D : 0;
+    const PD = o.pd, RISE = o.rise;
+    const r0 = portal0 ? PD : 0, r1 = portal1 ? PD : 0;
     const br = [];
     for (const [x0, y0] of o.poly.bridges) {
-      const x = Math.max(x0, portal0 ? (PORTAL_D + BRIDGE_RISE) / G : 0);
-      const y = Math.min(y0, portal1 ? L - (PORTAL_D + BRIDGE_RISE) / G : L);
+      const x = Math.max(x0, portal0 ? (PD + RISE) / G : 0);
+      const y = Math.min(y0, portal1 ? L - (PD + RISE) / G : L);
       if (y - x > 20) br.push([x, y]);
     }
     o.brEff = br;
-    const key = [{ s: 0, y: portal0 ? -r0 : (br.length && br[0][0] < 1 ? BRIDGE_RISE : 0) }];
-    for (const [x, y] of br) { key.push({ s: x, y: BRIDGE_RISE, open: true }, { s: y, y: BRIDGE_RISE }); }
-    key.push({ s: L, y: portal1 ? -r1 : (br.length && br[br.length - 1][1] > L - 1 ? BRIDGE_RISE : 0) });
+    const key = [{ s: 0, y: portal0 ? -r0 : (br.length && br[0][0] < 1 ? RISE : 0) }];
+    for (const [x, y] of br) { key.push({ s: x, y: RISE, open: true }, { s: y, y: RISE }); }
+    key.push({ s: L, y: portal1 ? -r1 : (br.length && br[br.length - 1][1] > L - 1 ? RISE : 0) });
     const pts = [key[0]];
     for (let i = 1; i < key.length; i++) {
       const p = key[i - 1], q = key[i];

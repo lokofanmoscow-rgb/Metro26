@@ -1,3 +1,4 @@
+import { transfersFor, arrivalText, departText, TERMINAL_TEXT } from './engine/announce.js';
 // Ядро игры: сцена, подгрузка мира по ходу движения, физика поезда, станции, камеры.
 import * as THREE from 'three';
 import { Route } from './engine/route.js';
@@ -21,30 +22,6 @@ import { SCHEME } from './data/scheme.js';
 const CHUNK = 200;
 const clockStr = (t) => { t = Math.floor(t % 86400); const p = (n) => String(n).padStart(2, '0'); return `${p(Math.floor(t / 3600))}:${p(Math.floor(t / 60) % 60)}`; };
 
-function accusative(name) {
-  return name.split(' ').map((w) => {
-    const lw = w.toLowerCase();
-    if (lw === 'линия') return 'линию';
-    if (/ая$/.test(lw)) return w.slice(0, -2) + 'ую';
-    return w;
-  }).join(' ').replace(/Линию/g, 'линию');
-}
-
-// пересадки со станции (по схеме)
-export function transfersFor(sid) {
-  const grp = SCHEME.transfers.find((g) => g.includes(sid));
-  if (!grp) return [];
-  const st = Object.fromEntries(SCHEME.stations.map((s) => [s.id, s]));
-  const me = st[sid];
-  const out = [];
-  for (const id of grp) {
-    if (id === sid || !st[id] || st[id].uc) continue;
-    if (st[id].line === me.line) continue;
-    const ln = SCHEME.lines.find((l) => l.id === st[id].line);
-    if (ln && !out.some((o) => o.line.id === ln.id)) out.push({ station: st[id].name, line: ln });
-  }
-  return out;
-}
 
 export class Game {
   constructor(canvas, ui) {
@@ -446,7 +423,7 @@ export class Game {
       if (this.crowd.busy()) { this.stats.score = Math.max(0, this.stats.score - 15); this._msg('Двери закрыты до окончания посадки (−15)'); }
       this.crowd.doorsClosing();
       const next = R.stations[(k ?? R.nextStationIndex(this.s)) + 1];
-      if (next) this.sound.say(`Осторожно, двери закрываются. Следующая станция — ${next.name}.`);
+      if (next) this.sound.say(departText(next.name));
       this.sound.doors(false, this.trainId);
     }
   }
@@ -649,11 +626,7 @@ export class Game {
     if (nst && !this.announced.has(nk) && this.s > nst.p0 - 10 && this.s < nst.stop) {
       this.announced.add(nk);
       const last = nk === R.stations.length - 1;
-      const tr = transfersFor(nst.sid);
-      let text = `Станция «${nst.name}».`;
-      if (tr.length) text += ` Переход на ${tr.map((t) => accusative(t.line.name)).join(' и ')}.`;
-      if (last) text += ' Конечная. Поезд дальше не идёт, просьба выйти из вагонов.';
-      this.sound.say(text, { male: false });
+      this.sound.say(arrivalText(nst.name, nst.sid), { male: false, then: last ? TERMINAL_TEXT : null });
       if (this.rng() < 0.65) this._spawnAmbient(nk);
     }
     // отправление: пропуск станции
@@ -837,3 +810,5 @@ export class Game {
 
   _msg(text, t = 3) { this.ui.message(text); this.msgTimer = t; }
 }
+
+export { transfersFor };

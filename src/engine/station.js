@@ -667,6 +667,7 @@ function wallZ(x0, x1, y0, y1, z) {
 
 // Наземная крытая станция и станция на метромосту: стеклянные стены и навес
 function buildShed(grp, style, xr, xl, yC, t) {
+  if (style.open) return buildCanopy(grp, style);
   const glass = new THREE.MeshLambertMaterial({ color: 0xbcd8e0, transparent: true, opacity: 0.22, emissive: 0x203030, side: THREE.DoubleSide, depthWrite: false });
   const frame = new THREE.MeshLambertMaterial({ color: t === 'bridge' ? 0x8f9593 : 0xf2f2f0, emissive: 0x2a2a2a });
   const acc = new THREE.MeshLambertMaterial({ color: style.c2 || '#f2c53d', emissive: new THREE.Color(style.c2 || '#f2c53d').multiplyScalar(0.3) });
@@ -915,4 +916,34 @@ function buildSideStation(route, st, line) {
   grp.matrix.decompose(grp.position, grp.quaternion, grp.scale);
   grp.updateMatrixWorld(true);
   return { group: grp, info, st };
+}
+
+// Открытая наземная станция: навес над островной платформой на одном ряду колонн
+// («Измайловская», «Кунцевская»); пути под открытым небом.
+function buildCanopy(grp, style) {
+  const xFar = EDGE_X - 10, xm = (EDGE_X + xFar) / 2;
+  const roofY = PLAT_Y + 3.9;
+  const conc = new THREE.MeshLambertMaterial({ map: concreteTexture('#b8b4aa'), side: THREE.DoubleSide });
+  const colM = mat(columnTexture({ ...style, csh: 'sq' }), 0.5);
+  const cols = [];
+  for (let z = -PL + 4; z <= PL - 4; z += 6.5) cols.push(boxGeom(0.55, roofY - PLAT_Y, 0.55, xm, (roofY + PLAT_Y) / 2, z));
+  grp.add(new THREE.Mesh(mergeGeoms(cols), colM));
+  // плита навеса с бортами и консолями
+  grp.add(new THREE.Mesh(mergeGeoms([
+    boxGeom(10.6, 0.28, 2 * PL - 2, xm, roofY + 0.14, 0),
+    boxGeom(0.6, 0.55, 2 * PL - 2, xm, roofY - 0.2, 0),
+    boxGeom(0.12, 0.5, 2 * PL - 2, EDGE_X + 0.25, roofY - 0.1, 0), boxGeom(0.12, 0.5, 2 * PL - 2, xFar - 0.25, roofY - 0.1, 0),
+  ]), conc));
+  const lampM = new THREE.MeshBasicMaterial({ color: 0xfff4dc });
+  const lamps = [];
+  for (let z = -PL + 6; z < PL - 4; z += 4) for (const x of [xm - 2.6, xm + 2.6]) lamps.push(boxGeom(0.22, 0.04, 1.6, x, roofY - 0.02, z));
+  grp.add(new THREE.Mesh(mergeGeoms(lamps), lampM));
+  // скамейки у колонн и названия станции на навесе
+  const bench = new THREE.MeshLambertMaterial({ color: 0x6b4a32 });
+  const bs = [];
+  for (let z = -PL + 10; z < PL - 8; z += 19.5) bs.push(boxGeom(0.5, 0.45, 2.4, xm + 0.9, PLAT_Y + 0.22, z), boxGeom(0.5, 0.45, 2.4, xm - 0.9, PLAT_Y + 0.22, z));
+  grp.add(new THREE.Mesh(mergeGeoms(bs), bench));
+  const tex = nameTexture(style.n, 'plate');
+  const nm = new THREE.MeshBasicMaterial({ map: tex });
+  grp.add(new THREE.Mesh(mergeGeoms([-50, -10, 30, 70].flatMap((z) => signPair(0.6 * tex.userData.aspect, 0.6, xm, roofY - 0.75, z))), nm));
 }

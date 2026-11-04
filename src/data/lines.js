@@ -7,7 +7,7 @@
 //  t   — тип: col (колонная мелкого заложения), pylon (пилонная глубокого заложения),
 //        cold (колонная трёхсводчатая глубокого заложения), vault (односводчатая),
 //        span (однопролётная с плоским потолком), ground (наземная крытая),
-//        bridge (на метромосту), side (наземная с боковыми платформами)
+//        bridge (на метромосту), side (наземная с боковыми платформами); open — открытая (навес)
 //  deep — глубокое заложение (в перегоне круглый тоннель из тюбингов)
 //  cs  — шаг колонн/пилонов, м
 //  csh — форма колонн: sq, rnd, fac (гранёные), flare (раскрывающаяся капитель), tree, frame
@@ -60,6 +60,8 @@ export const LINES = {
     // открытые участки: osm — участок с реальной осью и окружением, привязанный к станции anchor
     outdoor: [
       // Лужнецкий метромост с крытой галереей; ось и окружение — по данным OpenStreetMap
+      // Преображенский метромост через Яузу
+      { osm: 'preo', rev: false, anchor: 'Преображенская площадь', kind: 'open', portal: 0, rise: 0 },
       { osm: 'luzh', rev: true, anchor: 'Воробьёвы горы', kind: 'bridge' },
     ],
   },
@@ -99,6 +101,44 @@ export const LINES = {
     // открытый участок Автозаводская — Технопарк — Нагатинский метромост — Коломенская (OpenStreetMap)
     outdoor: [
       { osm: 'nag', rev: false, anchor: 'Технопарк', kind: 'open' },
+    ],
+  },
+
+  ln3: {
+    id: 'ln3',
+    num: '3',
+    name: 'Арбатско-Покровская линия',
+    short: 'Синяя',
+    color: '#0071B9',
+    stations: [
+      { n: 'Пятницкое шоссе', sid: 's188', d: 1440, y: 2012, dp: 12, t: 'col', cs: 7, csh: 'rnd', c: '#e9e4da', w: '#d8d2c6', wp: 'marble', wl: '#3a3a3a', wa: '#0071B9', f: ['#bdbab2', '#7a7a78'], fp: 'stripe', ce: '#d9dde0', cp: 'cells', l: 'led', nm: 'metal', info: 'колонная двухпролётная мелкого заложения; потолок из ячеистых алюминиевых панелей' },
+      { n: 'Митино', sid: 's40', d: 1720, y: 2009, dp: 12, t: 'vault', c: '#e9e4d8', w: '#d9cfbd', wp: 'marble', wl: '#4a4036', wa: '#b8a888', f: ['#a6a39c', '#5a5a58'], fp: 'check', ce: '#ece8de', cp: 'coffer', l: 'niche', nm: 'metal', info: 'односводчатая; ниши свода с мелкими кессонами подсвечены прожекторами' },
+      { n: 'Волоколамская', sid: 's41', d: 1180, y: 2009, dp: 12, t: 'col', cs: 9, csh: 'flare', c: '#d6d1c6', w: '#cfc9bc', wp: 'marble', wl: '#4a4a48', wa: '#9a958a', f: ['#bdbab2', '#5a5a58'], fp: 'check', ce: '#e8e4da', cp: 'arch', l: 'led', nm: 'metal', ch: 6.8, info: 'трёхсводчатая с аркадами высотой 8 м — «неоготическая» композиция' },
+      { n: 'Мякинино', sid: 's42', d: 3010, y: 2009, dp: 0, t: 'side', c: '#c9ccd0', c2: '#2f6fa8', w: '#d9dcdf', wp: 'panel', wl: '#8c8f92', wa: '#2f6fa8', f: ['#a3a39f', '#8e8e8c'], fp: 'plain', ce: '#6b6f74', cp: 'flat', l: 'led', nm: 'plate', info: 'наземная крытая станция с двумя береговыми платформами, встроена в комплекс «Крокус Сити»' },
+      { n: 'Строгино', sid: 's43', d: 6470, y: 2008, dp: 10, t: 'vault', c: '#e8e8e4', w: '#e6e6e2', wp: 'marble', wl: '#3a3a3a', wa: '#9ea3a8', f: ['#a6a6a2', '#3a3a3a'], fp: 'stripe', ce: '#e4e6e8', cp: 'rib', l: 'niche', nm: 'metal', info: 'односводчатая мелкого заложения, белый мрамор' },
+      { n: 'Крылатское', sid: 's44', d: 1940, y: 1989, dp: 9, t: 'vault', c: '#e8e6e0', w: '#e4e2dc', wp: 'marble', wl: '#6e6e6c', wa: '#b4b4ae', f: ['#8e8e8c', '#2a2a2a'], fp: 'check', ce: '#ecebe6', cp: 'rib', l: 'niche', nm: 'plate', info: 'односводчатая с асимметричным сводом; название — в центре зала' },
+      { n: 'Молодёжная', sid: 's45', d: 2230, y: 1965, dp: 8, t: 'col', cs: 4, csh: 'sq', c: '#e9e8e2', w: '#e9ece8', wp: 'tile', wl: '#1e1e1e', wa: '#c9cdd1', f: ['#8e8e8c', '#6e6e6c'], fp: 'plain', ce: '#e9e9e5', cp: 'rib', l: 'strip', nm: 'metal', info: '«сороконожка» 1965 года' },
+      { n: 'Кунцевская', sid: 's46', d: 1620, y: 1965, dp: 0, t: 'ground', open: true, c: '#efefea', w: '#cfd2d4', wp: 'panel', wl: '#5a5a58', wa: '#0071B9', f: ['#a6a6a2', '#7a7a78'], fp: 'plain', ce: '#d9d9d6', cp: 'flat', l: 'strip', nm: 'plate', info: 'наземная открытая станция; навес на колоннах, облицованных белым мрамором' },
+      { n: 'Славянский бульвар', sid: 's47', d: 3080, y: 2008, dp: 12, t: 'vault', c: '#e6e2d8', w: '#2f5e4a', wp: 'marble', wl: '#1e2a24', wa: '#b8b8b4', f: ['#c9c2b6', '#5a5a58'], fp: 'check', ce: '#ece8de', cp: 'coffer', l: 'niche', nm: 'plate', info: 'кессонированный свод с коваными орнаментами из листьев; стены — зелёный мрамор «Верде Гватемала»' },
+      { n: 'Парк Победы', sid: 's48', d: 3290, y: 2003, dp: 84, t: 'pylon', deep: true, cs: 9, c: '#8a5a42', c2: '#c9b8a0', w: '#c9b8a0', wp: 'marble', wl: '#4a2e22', wa: '#8a5a42', f: ['#8e8e8c', '#6e2a24'], fp: 'check', ce: '#ece6da', cp: 'flat', l: 'cornice', nm: 'metal', info: 'самая глубокая станция Москвы (84 м); панно об Отечественной войне 1812 года' },
+      { n: 'Киевская', sid: 's49', d: 1190, y: 1953, dp: 30, t: 'pylon', deep: true, cs: 9, c: '#d6d6d2', c2: '#b8862e', w: '#d6d6d2', wp: 'marble', wl: '#4a4a48', wa: '#b8862e', f: ['#8e8e8c', '#6e6e6c'], fp: 'stripe', ce: '#efe9dc', cp: 'coffer', l: 'chand', nm: 'metal', info: 'мрамор «коелга», керамический фриз с украинскими орнаментами' },
+      { n: 'Смоленская', sid: 's50', d: 1660, y: 1953, dp: 50, t: 'pylon', deep: true, cs: 9, c: '#efeee9', c2: '#b8b4aa', w: '#efeee9', wp: 'marble', wl: '#1e1e1e', wa: '#8f3a32', f: ['#1e1e1e', '#efefea'], fp: 'border', ce: '#efede6', cp: 'coffer', l: 'chand', nm: 'metal', info: 'пилоны из белого мрамора с полуколоннами; чёрный мраморный пол с орнаментом' },
+      { n: 'Арбатская', sid: 's51', d: 1140, y: 1953, dp: 41, t: 'pylon', deep: true, cs: 9, c: '#9a4a3a', c2: '#d9c8a6', w: '#e8dcc8', wp: 'marble', wl: '#5a2a22', wa: '#b8862e', f: ['#8e8e8c', '#8f3a32'], fp: 'check', ce: '#f0e8d6', cp: 'coffer', l: 'chand', nm: 'metal', info: 'длинный зал с лепным сводом, люстрами и пилонами из красного мрамора' },
+      { n: 'Площадь Революции', sid: 's52', d: 2570, y: 1938, dp: 34, t: 'pylon', deep: true, cs: 9, c: '#8e3b2e', c2: '#b08d57', w: '#d9b8a0', wp: 'marble', wl: '#4a2a22', wa: '#b08d57', f: ['#8e8e8c', '#2a2a2a'], fp: 'check', ce: '#ece4d4', cp: 'flat', l: 'cornice', nm: 'metal', info: 'арки из красного и жёлтого мрамора, 76 бронзовых скульптур Манизера' },
+      { n: 'Курская', sid: 's53', d: 1920, y: 1938, dp: 30, t: 'pylon', deep: true, cs: 9, c: '#e8e2d6', c2: '#a6a29a', w: '#e8e2d6', wp: 'marble', wl: '#3a3a3a', wa: '#b8b4aa', f: ['#8e8e8c', '#6e6e6c'], fp: 'plain', ce: '#efebe2', cp: 'flat', l: 'cornice', nm: 'metal', info: 'пилонная трёхсводчатая глубокого заложения' },
+      { n: 'Бауманская', sid: 's54', d: 1880, y: 1944, dp: 32, t: 'pylon', deep: true, cs: 9, c: '#e2ddd2', c2: '#8f3a32', w: '#e2ddd2', wp: 'marble', wl: '#3a3a3a', wa: '#8f3a32', f: ['#8e8e8c', '#8f3a32'], fp: 'check', ce: '#ece8de', cp: 'flat', l: 'cornice', nm: 'metal', info: 'бронзовые скульптуры защитников Родины и вставки из красного шокшинского кварцита' },
+      { n: 'Электрозаводская', sid: 's55', d: 1110, y: 1944, dp: 30, t: 'pylon', deep: true, cs: 9, c: '#e6dfcf', c2: '#a69a80', w: '#e6dfcf', wp: 'marble', wl: '#4a4036', wa: '#b8a888', f: ['#8e8e8c', '#2a2a2a'], fp: 'check', ce: '#f0ebe0', cp: 'coffer', l: 'niche', nm: 'metal', info: 'свод с рядами круглых светильников в нишах; прохоро-баландинский мрамор' },
+      { n: 'Семёновская', sid: 's56', d: 1970, y: 1944, dp: 47, t: 'cold', deep: true, cs: 6, csh: 'sq', c: '#e6e2d8', c2: '#8a6a4a', w: '#e6e2d8', wp: 'marble', wl: '#4a4036', wa: '#a69a80', f: ['#8e8e8c', '#6e6e6c'], fp: 'check', ce: '#ece8de', cp: 'coffer', l: 'chand', nm: 'metal', info: 'колонная трёхсводчатая: каждый пилон заменён четырьмя колоннами из мрамора «коелга»' },
+      { n: 'Партизанская', sid: 's57', d: 1950, y: 1944, dp: 10, t: 'col', cs: 4.5, csh: 'fac', c: '#e9e0cf', w: '#e6dcc8', wp: 'marble', wl: '#5a4a3a', wa: '#b8a080', f: ['#8e8e8c', '#8f3a32'], fp: 'check', ce: '#ece6d8', cp: 'coffer', l: 'chand', nm: 'metal', info: 'трёхпутная станция со скульптурами партизан' },
+      { n: 'Измайловская', sid: 's58', d: 1740, y: 1961, dp: 0, t: 'ground', open: true, c: '#e9e8e2', w: '#cfd2d4', wp: 'panel', wl: '#5a5a58', wa: '#0071B9', f: ['#a6a6a2', '#7a7a78'], fp: 'plain', ce: '#d9d9d6', cp: 'flat', l: 'strip', nm: 'plate', info: 'наземная открытая станция в Измайловском парке; навес на 25 колоннах в один ряд' },
+      { n: 'Первомайская', sid: 's59', d: 1640, y: 1961, dp: 8, t: 'col', cs: 4, csh: 'flare', c: '#b0584a', w: '#f0efea', wp: 'tile', wl: '#1e1e1e', wa: '#dcdbd6', f: ['#8e8e8c', '#8f3a32'], fp: 'check', ce: '#e9e9e5', cp: 'rib', l: 'strip', nm: 'metal', info: 'колонны из красного мрамора «салиэти», путевые стены — белая и чёрная плитка' },
+      { n: 'Щёлковская', sid: 's60', d: 0, y: 1963, dp: 8, t: 'col', cs: 4, csh: 'sq', c: '#e9e8e2', w: '#e8eef2', wp: 'tile', wl: '#1e1e1e', wa: '#3d6fa8', f: ['#8e8e8c', '#6e6e6c'], fp: 'plain', ce: '#e9e9e5', cp: 'rib', l: 'strip', nm: 'metal', info: '«сороконожка»: два ряда по 40 колонн с шагом 4 м' },
+    ],
+    // открытые участки по схеме путевого развития: метромост и «Мякинино», «Кунцевская», «Измайловская»
+    outdoor: [
+      { osm: 'myak', rev: true, anchor: 'Мякинино', kind: 'open', portal: 0, rise: 0 },
+      { osm: 'kunc', rev: false, anchor: 'Кунцевская', kind: 'open', portal: 0 },
+      { osm: 'izm', rev: false, anchor: 'Измайловская', kind: 'open', rise: 0 },
     ],
   },
 
@@ -160,7 +200,7 @@ export const LINES = {
   },
 };
 
-export const PLAYABLE = ['ln1', 'ln2', 'ln6', 'ln16'];
+export const PLAYABLE = ['ln1', 'ln2', 'ln3', 'ln6', 'ln16'];
 
 export const TRAINS = {
   '717': {

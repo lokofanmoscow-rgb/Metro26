@@ -16,8 +16,11 @@ AREAS = {
   # zone: ось пути между порталами (две линии путей, порталы задаются точками на оси)
   'nag': dict(line='Замоскворецкая линия', anchor='Технопарк', zone=True, portals=[(-273, -913), (86, 1082)], spacing=4.6),
   'luzh': dict(line='Сокольническая линия', anchor='Воробьёвы горы', zone=True, portals=None, spacing=None),
-  'fil': dict(line='Сокольническая линия', anchor='Филатов Луг', zone=False),
-  'prok': dict(line='Сокольническая линия', anchor='Прокшино', zone=False),
+  # focus — точка (широта, долгота) внутри открытого участка, если станция-якорь вне его
+  'preo': dict(line='Сокольническая линия', anchor='Преображенская площадь', zone=True, portals=None, spacing=None, focus=(55.7966, 37.7016)),
+  'myak': dict(line='Арбатско-Покровская линия', anchor='Мякинино', zone=True, portals=None, spacing=None),
+  'kunc': dict(line='Арбатско-Покровская линия', anchor='Кунцевская', zone=True, portals=None, spacing=None),
+  'izm': dict(line='Арбатско-Покровская линия', anchor='Измайловская', zone=True, portals=None, spacing=None),
 }
 PX = 1.6  # м на пиксель наземной текстуры
 
@@ -38,8 +41,9 @@ AREA_COL = [
 WATER = (52, 84, 104)
 
 
-def ring_from_rel(members, ways):
-    """Склеивает внешние контуры мультиполигона из имеющихся путей (неполные пропускает)."""
+def ring_from_rel(members, ways, allow_open=False):
+    """Склеивает внешние контуры мультиполигона из имеющихся путей. Неполные (уходящие за край
+    загруженного участка) пропускает, а для лесов и парков (allow_open) замыкает прямой."""
     parts = [list(ways[r][0]) for t, r, role in members if t == 'way' and role in ('outer', '') and r in ways]
     rings = []
     while parts:
@@ -55,6 +59,7 @@ def ring_from_rel(members, ways):
                 else: continue
                 parts.pop(i); changed = True; break
         if cur[0] == cur[-1]: rings.append(cur)
+        elif allow_open and len(cur) > 8: rings.append(cur + [cur[0]])
     return rings
 
 
@@ -164,8 +169,9 @@ def build(area, cfg):
             if poly_len(pts) > 800: tracks.append((pts, kinds))
             if len(tracks) == 2: break
         # участок между порталами по каждому пути: максимальный непрерывный «не тоннель» вокруг станции
+        fc = P(*cfg['focus']) if cfg.get('focus') else pc
         def open_part(pts, kinds):
-            d, s_st, q = nearest_on(pts, pc)
+            d, s_st, q = nearest_on(pts, fc)
             s = 0; segs_s = []
             for i in range(len(pts) - 1):
                 L = math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); segs_s.append((s, s + L, kinds[i])); s += L
@@ -207,6 +213,11 @@ def build(area, cfg):
         # направление «вперёд по линии» (dir 0): по касательной у станции и порядку станций задаётся в игре; ось — от одного портала к другому
         Lc = poly_len(center)
         s_station = nearest_on(center, pc)[1]
+        if cfg.get('focus'):
+            # станция вне участка: расстояние вдоль пути от начала участка до станции (со знаком)
+            tr = resample(A[0] if False else tracks[0][0], 2.0)
+            s_c0 = nearest_on(tr, center[0])[1]; s_c1 = nearest_on(tr, center[-1])[1]; s_pc = nearest_on(tr, pc)[1]
+            s_station = (s_pc - s_c0) if s_c1 > s_c0 else (s_c0 - s_pc)
         # мосты: проекции мостовых сегментов обоих путей на ось
         br = []
         for pts, kinds in tracks:
@@ -235,7 +246,8 @@ def build(area, cfg):
             polys.append((t, wpts(nd)))
     for r, (mem, t) in rels.items():
         if t.get('type') == 'multipolygon':
-            for ring in ring_from_rel(mem, ways): polys.append((t, wpts(ring)))
+            land = t.get('landuse') in ('forest', 'grass', 'meadow', 'recreation_ground') or t.get('natural') in ('wood', 'scrub', 'grassland') or t.get('leisure') in ('park', 'garden')
+            for ring in ring_from_rel(mem, ways, allow_open=land): polys.append((t, wpts(ring)))
     # площади по порядку
     layered = []
     for t, pts in polys:
@@ -257,8 +269,9 @@ def build(area, cfg):
         if t.get('natural') == 'water' and t.get('water') == 'river':
             for typ, ref, role in mem:
                 if typ == 'way' and ref in ways: bdr.line([px(p) for p in wpts(ways[ref][0])], fill=255, width=3)
+    def open_river(t): return t.get('waterway') == 'river' and t.get('tunnel') not in ('culvert', 'yes') and not str(t.get('layer', '0')).startswith('-')
     for w, (nd, t) in ways.items():
-        if t.get('waterway') == 'river': river_pts += wpts(nd)
+        if open_river(t): river_pts += wpts(nd)
     if river_pts:
         import collections
         bd = banks.load(); wm = water.load()
@@ -271,11 +284,19 @@ def build(area, cfg):
             for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
                 if 0 <= nx < W and 0 <= ny < H and wm[nx, ny] == 0 and bd[nx, ny] == 0: wm[nx, ny] = 255; q.append((nx, ny))
         # если берег не замкнулся и вода разлилась на всю карту — откат к широкой линии по оси реки
-        frac = sum(1 for v in water.getdata() if v) / (W * H)
-        if frac > 0.45:
+        # ширина реки: тег width или по названию (Москва-река ~200 м, малые реки ~35 м)
+        def rw(t):
+            try: return float(str(t.get('width')).replace(',', '.'))
+            except ValueError: return 200 if 'Москва' in t.get('name', '') else 35
+        exp_area = 0
+        for w, (nd, t) in ways.items():
+            if open_river(t):
+                pts = wpts(nd); exp_area += poly_len(pts) * rw(t) if len(pts) > 1 else 0
+        wat_area = sum(1 for v in water.getdata() if v) * PX * PX
+        if wat_area > 2.5 * exp_area:
             water = Image.new('L', (W, H), 0); wdr = ImageDraw.Draw(water)
             for w, (nd, t) in ways.items():
-                if t.get('waterway') == 'river': wdr.line([px(p) for p in wpts(nd)], fill=255, width=int(200 / PX))
+                if open_river(t): wdr.line([px(p) for p in wpts(nd)], fill=255, width=max(3, int(rw(t) / PX)))
         water = water.filter(ImageFilter.MaxFilter(3))
     img.paste(WATER, mask=water)
     # дороги: сначала тротуары/дорожки, затем проезжая часть
@@ -323,6 +344,7 @@ def build(area, cfg):
         try: return float(str(v).replace(',', '.').split(';')[0].split()[0])
         except (ValueError, IndexError): return d
     blds = []
+    cand = []
     def add_b(t, pts):
         if len(pts) < 4: return
         lv = num(t.get('building:levels'))
@@ -346,7 +368,8 @@ def build(area, cfg):
         a2 = sum(ring[i][0] * ring[(i + 1) % len(ring)][1] - ring[(i + 1) % len(ring)][0] * ring[i][1] for i in range(len(ring)))
         if a2 > 0: ring = ring[::-1]
         if abs(a2) / 2 < 6: return
-        blds.append([round(h, 1), round(mh, 1), kind, col] + [int(round(v * 10)) for p in ring for v in p])
+        if bt in ('roof', 'bridge', 'carport') or t.get('building') == 'roof': return  # навесы на опорах «висели» бы в воздухе
+        cand.append({'h': h, 'mh': mh, 'kind': kind, 'col': col, 'ring': ring, 'part': 'building:part' in t and 'building' not in t, 'outline': 'building' in t})
     parts_outline = set()
     for w, (nd, t) in ways.items():
         if 'building:part' in t: parts_outline.add(w)
@@ -361,6 +384,30 @@ def build(area, cfg):
     for r, (mem, t) in rels.items():
         if t.get('type') == 'multipolygon' and 'building' in t:
             for ring in ring_from_rel(mem, ways): add_b(t, wpts(ring))
+    # фильтрация: контур здания с частями не рисуем (части задают форму и высоты);
+    # часть с min_height без опоры под ней опускаем на землю
+    def inside(pt, ring):
+        x, z = pt; c = False
+        for i in range(len(ring)):
+            a, b = ring[i], ring[(i + 1) % len(ring)]
+            if (a[1] > z) != (b[1] > z) and x < (b[0] - a[0]) * (z - a[1]) / ((b[1] - a[1]) or 1e-9) + a[0]: c = not c
+        return c
+    def centroid(r): return (sum(p[0] for p in r) / len(r), sum(p[1] for p in r) / len(r))
+    parts = [b for b in cand if b['part']]
+    pc_list = [(centroid(b['ring']), b) for b in parts]
+    keep = []
+    for b in cand:
+        if b['outline'] and not b['part']:
+            xs = [p[0] for p in b['ring']]; zs = [p[1] for p in b['ring']]
+            if any(min(xs) <= c[0] <= max(xs) and min(zs) <= c[1] <= max(zs) and inside(c, b['ring']) for c, _ in pc_list): continue
+        keep.append(b)
+    for b in keep:
+        if b['mh'] > 0.5:
+            c = centroid(b['ring'])
+            ok = any(o is not b and o['h'] >= b['mh'] - 1.5 and o['mh'] < b['mh'] - 0.5 and inside(c, o['ring']) for o in keep)
+            if not ok: b['mh'] = 0
+    for b in keep:
+        blds.append([round(b['h'], 1), round(b['mh'], 1), b['kind'], b['col']] + [int(round(v * 10)) for p in b['ring'] for v in p])
     res['buildings'] = blds
     # ---------- мосты дорог ----------
     rb = []
@@ -385,6 +432,11 @@ def build(area, cfg):
         c = res['zone']['center']; cl = [(c[i], c[i + 1]) for i in range(0, len(c), 2)]
         trees = [p for p in trees if nearest_on(cl, p)[0] > 9]
     random.shuffle(trees)
+    if cfg['zone']:
+        # ближе к трассе — гуще (их видно из кабины), дальше — реже
+        cl2 = resample(cl, 20.0)
+        def dist(p): return min(math.hypot(p[0] - q[0], p[1] - q[1]) for q in cl2)
+        trees.sort(key=lambda p: dist(p) + random.random() * 250)
     trees = trees[:7000]
     res['trees'] = [int(round(v * 10)) for p in trees for v in p]
     print(area, len(blds), 'buildings', len(trees), 'trees', len(rb), 'road bridges', f'{W}x{H} px ground', file=sys.stderr)

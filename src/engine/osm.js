@@ -9,12 +9,69 @@ import luzh from '../assets/osm/luzh.json';
 import nagG from '../assets/osm/nag_ground.jpg';
 import luzhG from '../assets/osm/luzh_ground.jpg';
 import nagW from '../assets/osm/nag_water.png';
+import preo from '../assets/osm/preo.json';
+import preoG from '../assets/osm/preo_ground.jpg';
+import preoW from '../assets/osm/preo_water.png';
+import myak from '../assets/osm/myak.json';
+import myakG from '../assets/osm/myak_ground.jpg';
+import myakW from '../assets/osm/myak_water.png';
+import kunc from '../assets/osm/kunc.json';
+import kuncG from '../assets/osm/kunc_ground.jpg';
+import kuncW from '../assets/osm/kunc_water.png';
+import izm from '../assets/osm/izm.json';
+import izmG from '../assets/osm/izm_ground.jpg';
+import izmW from '../assets/osm/izm_water.png';
 import luzhW from '../assets/osm/luzh_water.png';
 
 export const OSM = {
   nag: { data: nag, ground: nagG, water: nagW },
   luzh: { data: luzh, ground: luzhG, water: luzhW },
+  preo: { data: preo, ground: preoG, water: preoW },
+  myak: { data: myak, ground: myakG, water: myakW },
+  kunc: { data: kunc, ground: kuncG, water: kuncW },
+  izm: { data: izm, ground: izmG, water: izmW },
 };
+
+// Сглаживание оси участка: в данных OSM встречаются изломы (стыки путей), а в метро радиусы
+// кривых не меньше ~300 м. Гауссово сглаживание с сохранением концов; положения станции и мостов
+// пересчитываются пропорционально новой длине.
+function smoothZone(z) {
+  if (!z || z._smooth) return;
+  const c = z.center;
+  let P = [];
+  for (let i = 0; i < c.length; i += 2) P.push([c[i], c[i + 1]]);
+  // равномерно через 2 м
+  const R = [P[0]]; let need = 2;
+  for (let i = 0; i < P.length - 1; i++) {
+    const a = P[i], b = P[i + 1], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    let t = 0;
+    while (L - t >= need) { t += need; R.push([a[0] + (b[0] - a[0]) * t / L, a[1] + (b[1] - a[1]) * t / L]); need = 2; }
+    need -= L - t;
+  }
+  R.push(P[P.length - 1]);
+  const n = R.length, K = 20, sig = 9;
+  const w = []; for (let k = -K; k <= K; k++) w.push(Math.exp(-(k * k) / (2 * sig * sig)));
+  const at = (A, i) => (i < 0 ? [2 * A[0][0] - A[-i][0], 2 * A[0][1] - A[-i][1]] : i >= n ? [2 * A[n - 1][0] - A[2 * n - 2 - i][0], 2 * A[n - 1][1] - A[2 * n - 2 - i][1]] : A[i]);
+  let A = R;
+  for (let pass = 0; pass < 4; pass++) {
+    const B = [];
+    for (let i = 0; i < n; i++) {
+      let x = 0, y = 0, ws = 0;
+      for (let k = -K; k <= K; k++) { const q = at(A, i + k); x += q[0] * w[k + K]; y += q[1] * w[k + K]; ws += w[k + K]; }
+      B.push([x / ws, y / ws]);
+    }
+    B[0] = R[0]; B[n - 1] = R[n - 1];
+    A = B;
+  }
+  let L = 0; for (let i = 1; i < n; i++) L += Math.hypot(A[i][0] - A[i - 1][0], A[i][1] - A[i - 1][1]);
+  const f = L / z.length;
+  z.center = A.flat();
+  z.station *= f;
+  z.bridges = z.bridges.map(([a, b]) => [a * f, Math.min(L, b * f)]);
+  z.length = L;
+  z._smooth = true;
+}
+for (const a of Object.values(OSM)) smoothZone(a.data.zone);
 
 export const GROUND_Y = -1.25; // земля относительно головки рельса на наземном участке
 const WATER_DEPTH = 6.0; // урез воды ниже набережной
@@ -136,82 +193,158 @@ export function frameMatrix(beta, px, pz, wx, wy, wz) {
 }
 
 // ---------- текстуры фасадов ----------
+// Ячейка текстуры — 4 окна × 4 этажа (12 × 12,4 м). Виды: 0 — панельный дом, 1 — кирпичный,
+// 2 — стекло (офисы), 3 — промышленный, 4 — исторический (штукатурка, высокие окна), 5 — первый этаж.
 let FAC = null;
 function facades() {
   if (FAC) return FAC;
-  const mk = (base, win, frame, opts = {}) => {
-    const c = makeCanvas(256, 256);
-    const ctx = c.getContext('2d');
-    const rng = mulberry32(opts.seed || 3);
-    ctx.fillStyle = base; ctx.fillRect(0, 0, 256, 256);
-    if (opts.brick) {
-      for (let y = 0; y < 256; y += 8) for (let x = (y / 8) % 2 ? -8 : 0; x < 256; x += 16) { ctx.fillStyle = `rgba(0,0,0,${0.05 + rng() * 0.08})`; ctx.fillRect(x, y, 15, 7); }
+  const S = 512, CW = S / 4, CH = S / 4;
+  const noise = (ctx, a, n = 2200, sz = 3) => { const r = mulberry32(n); for (let i = 0; i < n; i++) { ctx.fillStyle = `rgba(${r() < 0.5 ? 0 : 255},${r() < 0.5 ? 0 : 255},${r() < 0.5 ? 0 : 255},${a * r()})`; ctx.fillRect(r() * S, r() * S, sz, sz); } };
+  const glassG = (ctx, x, y, w, h, r, lit) => {
+    const g = ctx.createLinearGradient(x, y, x + w * 0.4, y + h);
+    if (lit) { g.addColorStop(0, '#e9d7a8'); g.addColorStop(1, '#b8996a'); }
+    else { g.addColorStop(0, `rgb(${120 + r * 40},${142 + r * 40},${160 + r * 35})`); g.addColorStop(0.55, '#3b4a56'); g.addColorStop(1, '#27313a'); }
+    ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  };
+  const mk = (seed, draw) => {
+    const c = makeCanvas(S, S); const ctx = c.getContext('2d');
+    draw(ctx, mulberry32(seed));
+    const t = canvasTex(c, { aniso: 8 }); t.userData.shared = true; return t;
+  };
+  const windows = (ctx, rng, { w = 0.46, h = 0.5, y = 0.24, frame = '#f2f0ea', fw = 4, split = true, sill = null, balc = null }) => {
+    for (let j = 0; j < 4; j++) for (let i = 0; i < 4; i++) {
+      const ww = CW * w, wh = CH * h, x = i * CW + (CW - ww) / 2, yy = j * CH + CH * y;
+      glassG(ctx, x, yy, ww, wh, rng(), rng() < 0.12);
+      ctx.strokeStyle = frame; ctx.lineWidth = fw; ctx.strokeRect(x, yy, ww, wh);
+      if (split) { ctx.beginPath(); ctx.moveTo(x + ww * 0.5, yy); ctx.lineTo(x + ww * 0.5, yy + wh); ctx.moveTo(x, yy + wh * 0.32); ctx.lineTo(x + ww, yy + wh * 0.32); ctx.stroke(); }
+      if (rng() < 0.25) { ctx.fillStyle = 'rgba(240,236,226,0.55)'; ctx.fillRect(x + 3, yy + 3, ww * (0.3 + rng() * 0.4), wh - 6); } // шторы
+      if (sill) { ctx.fillStyle = sill; ctx.fillRect(x - 4, yy + wh, ww + 8, 6); }
+      if (balc && rng() < 0.55) { ctx.fillStyle = balc; ctx.fillRect(x - 10, yy + wh * 0.55, ww + 20, wh * 0.5); ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(x - 10, yy + wh * 0.55, ww + 20, 4); }
     }
-    if (opts.panel) { ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 2; for (let i = 0; i <= 256; i += 128) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.moveTo(0, i); ctx.lineTo(256, i); ctx.stroke(); } }
-    // окна: 2×2 ячейки (u — 3 м, v — этаж 3.1 м)
-    for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) {
-      const x = i * 128, y = j * 128;
-      const ww = opts.glass ? 120 : 64, wh = opts.glass ? 116 : 70;
-      const ox = x + (128 - ww) / 2, oy = y + (opts.glass ? 6 : 26);
-      const lit = rng();
-      const g = ctx.createLinearGradient(0, oy, 0, oy + wh);
-      g.addColorStop(0, lit < 0.15 ? '#d9c79a' : win[0]); g.addColorStop(1, lit < 0.15 ? '#a8946a' : win[1]);
-      ctx.fillStyle = g; ctx.fillRect(ox, oy, ww, wh);
-      ctx.strokeStyle = frame; ctx.lineWidth = opts.glass ? 3 : 5; ctx.strokeRect(ox, oy, ww, wh);
-      if (!opts.glass) { ctx.beginPath(); ctx.moveTo(ox + ww / 2, oy); ctx.lineTo(ox + ww / 2, oy + wh); ctx.stroke(); }
-      if (opts.balcony && rng() < 0.5) { ctx.fillStyle = opts.balcony; ctx.fillRect(ox - 6, oy + wh - 6, ww + 12, 26); }
-    }
-    const t = canvasTex(c, { aniso: 8 });
-    t.userData.shared = true;
-    return t;
   };
   FAC = [
-    mk('#d9d4c8', ['#566876', '#2e3a44'], '#eeeae2', { panel: true, balcony: '#c9c3b6', seed: 1 }), // панельный жилой
-    mk('#9a5b44', ['#4e5e6a', '#2a343c'], '#e8e2d8', { brick: true, seed: 2 }), // кирпич
-    mk('#7f95a4', ['#5f7f97', '#2f4658'], '#3b4650', { glass: true, seed: 3 }), // стекло
-    mk('#a7a9a8', ['#5b666e', '#3a434a'], '#8a8d8e', { panel: true, seed: 4 }), // промышленный
-    mk('#e7dcc0', ['#4d5c66', '#2a3238'], '#f4ecd8', { seed: 5 }), // исторический
+    mk(1, (ctx, rng) => { // панельный: светлые панели со швами, лоджии
+      ctx.fillStyle = '#dcd8cf'; ctx.fillRect(0, 0, S, S); noise(ctx, 0.05);
+      ctx.strokeStyle = 'rgba(60,60,60,0.28)'; ctx.lineWidth = 2;
+      for (let i = 0; i <= 4; i++) { ctx.beginPath(); ctx.moveTo(i * CW, 0); ctx.lineTo(i * CW, S); ctx.moveTo(0, i * CH); ctx.lineTo(S, i * CH); ctx.stroke(); }
+      windows(ctx, rng, { w: 0.5, h: 0.52, frame: '#eceae4', balc: '#cfcabe' });
+    }),
+    mk(2, (ctx, rng) => { // кирпич
+      ctx.fillStyle = '#9b5a43'; ctx.fillRect(0, 0, S, S);
+      for (let y = 0; y < S; y += 8) for (let x = (y / 8) % 2 ? -10 : 0; x < S; x += 20) { const v = rng(); ctx.fillStyle = `rgba(${v < 0.3 ? 40 : 0},0,0,${0.05 + v * 0.12})`; ctx.fillRect(x, y, 19, 7); }
+      ctx.fillStyle = 'rgba(230,220,200,0.25)'; for (let y = 7; y < S; y += 8) ctx.fillRect(0, y, S, 1);
+      windows(ctx, rng, { w: 0.4, h: 0.5, frame: '#ece6da', sill: '#d8d0c0' });
+    }),
+    mk(3, (ctx, rng) => { // стекло: витраж с импостами и отражением неба
+      const g = ctx.createLinearGradient(0, 0, S, S); g.addColorStop(0, '#8fb0c4'); g.addColorStop(0.5, '#4f6f84'); g.addColorStop(1, '#7c98aa');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
+      for (let j = 0; j < 4; j++) for (let i = 0; i < 8; i++) if (rng() < 0.2) { ctx.fillStyle = 'rgba(230,215,170,0.35)'; ctx.fillRect(i * S / 8 + 2, j * CH + 2, S / 8 - 4, CH - 4); }
+      ctx.strokeStyle = '#30393f'; ctx.lineWidth = 4;
+      for (let i = 0; i <= 8; i++) { ctx.beginPath(); ctx.moveTo(i * S / 8, 0); ctx.lineTo(i * S / 8, S); ctx.stroke(); }
+      ctx.lineWidth = 7; for (let j = 0; j <= 4; j++) { ctx.beginPath(); ctx.moveTo(0, j * CH); ctx.lineTo(S, j * CH); ctx.stroke(); }
+    }),
+    mk(4, (ctx, rng) => { // промышленный: профлист и ленточное остекление
+      ctx.fillStyle = '#a9aca9'; ctx.fillRect(0, 0, S, S);
+      for (let x = 0; x < S; x += 8) { ctx.fillStyle = x % 16 ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.12)'; ctx.fillRect(x, 0, 4, S); }
+      noise(ctx, 0.06);
+      for (const j of [1, 3]) { for (let i = 0; i < 4; i++) glassG(ctx, i * CW + 6, j * CH + CH * 0.3, CW - 12, CH * 0.35, rng(), false); ctx.fillStyle = '#5d6266'; ctx.fillRect(0, j * CH + CH * 0.3 - 4, S, 4); }
+    }),
+    mk(5, (ctx, rng) => { // исторический: штукатурка, высокие окна с наличниками, карнизы
+      ctx.fillStyle = '#e3d6b4'; ctx.fillRect(0, 0, S, S); noise(ctx, 0.05);
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; for (let j = 0; j < 4; j++) ctx.fillRect(0, j * CH, S, 6);
+      for (let i = 0; i < 4; i++) { ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.fillRect(i * CW, 0, 10, S); }
+      windows(ctx, rng, { w: 0.36, h: 0.6, y: 0.2, frame: '#f6efe0', fw: 8, sill: '#f4ecda' });
+    }),
+    mk(6, (ctx, rng) => { // первый этаж: витрины и входы
+      ctx.fillStyle = '#8c8880'; ctx.fillRect(0, 0, S, S); noise(ctx, 0.06);
+      for (let i = 0; i < 4; i++) {
+        const shop = rng() < 0.6;
+        const x = i * CW + 8, w = CW - 16, y = shop ? CH * 0.12 : CH * 0.3, h = CH * (shop ? 0.78 : 0.5);
+        glassG(ctx, x, y, w, h, rng(), shop && rng() < 0.5);
+        ctx.strokeStyle = '#2e3236'; ctx.lineWidth = 5; ctx.strokeRect(x, y, w, h);
+        if (shop) { ctx.fillStyle = ['#a8322d', '#2f6fa8', '#3b7a5a', '#c9a24a'][Math.floor(rng() * 4)]; ctx.fillRect(x, 0, w, CH * 0.1); }
+      }
+      ctx.drawImage(ctx.canvas, 0, 0, S, CH, 0, CH, S, CH); ctx.drawImage(ctx.canvas, 0, 0, S, 2 * CH, 0, 2 * CH, S, 2 * CH);
+    }),
   ];
-  const r = makeCanvas(128, 128); const rc = r.getContext('2d');
-  rc.fillStyle = '#6d6c69'; rc.fillRect(0, 0, 128, 128);
-  for (let i = 0; i < 900; i++) { rc.fillStyle = `rgba(${Math.random() < 0.5 ? 0 : 255},${Math.random() < 0.5 ? 0 : 255},${Math.random() < 0.5 ? 0 : 255},0.05)`; rc.fillRect(Math.random() * 128, Math.random() * 128, 3, 3); }
+  const r = makeCanvas(256, 256); const rc = r.getContext('2d');
+  rc.fillStyle = '#5f5e5b'; rc.fillRect(0, 0, 256, 256);
+  const rr = mulberry32(9);
+  for (let i = 0; i < 2500; i++) { rc.fillStyle = `rgba(${rr() < 0.5 ? 0 : 255},${rr() < 0.5 ? 0 : 255},${rr() < 0.5 ? 0 : 255},${0.05 * rr()})`; rc.fillRect(rr() * 256, rr() * 256, 4, 4); }
+  rc.strokeStyle = 'rgba(0,0,0,0.18)'; rc.lineWidth = 2; for (let i = 0; i < 256; i += 64) { rc.beginPath(); rc.moveTo(i, 0); rc.lineTo(i, 256); rc.stroke(); }
   FAC.roof = canvasTex(r); FAC.roof.userData.shared = true;
   return FAC;
 }
 
-const KIND_TINT = ['#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff'];
+// палитры по типу здания (оттенок умножается на текстуру фасада)
+const PALETTE = [
+  ['#ffffff', '#f2efe8', '#e8ecef', '#f3ead9', '#e9e4ef', '#e2ebe2'],
+  ['#ffffff', '#e8c9a8', '#f0dcb4', '#d8a890', '#f4e4c8'],
+  ['#ffffff', '#d8e4ec', '#c9dcd4', '#e6e0d0'],
+  ['#ffffff', '#e6e2d4', '#d4dce0', '#e8d8c4'],
+  ['#ffffff', '#f6e7bf', '#f2d9c6', '#e9eef0', '#f4e1a8'],
+];
 
-// Выдавливание контуров зданий в одну геометрию на тип фасада
-function buildBuildings(list, groundY) {
-  const walls = [[], [], [], [], []], roofs = [];
+// Выдавливание контуров зданий. ground(x, z) — высота рельефа: здания стоят на земле, а не над ней.
+function buildBuildings(list, groundY, ground) {
+  const walls = [[], [], [], [], [], []], roofs = [], parapets = [];
+  const tmp = new THREE.Color(), white = new THREE.Color('#ffffff');
   for (const b of list) {
-    const [h, mh, kind] = b;
+    const [h, mh0, kind0] = b;
     const col = b[3];
-    const ring = [];
+    let ring = [];
     for (let i = 4; i < b.length; i += 2) ring.push(new THREE.Vector2(b[i] / 10, b[i + 1] / 10));
     if (ring.length < 3) continue;
-    const y0 = groundY + mh, y1 = groundY + Math.max(h, mh + 1);
-    const W = walls[kind] || walls[0];
-    const pos = [], nor = [], uv = [], colr = [];
-    const tint = new THREE.Color(col && /^#|^[a-z]+$/i.test(col) ? col : KIND_TINT[kind]);
-    if (col) tint.lerp(new THREE.Color('#ffffff'), 0.35);
+    let A2 = 0; for (let i = 0; i < ring.length; i++) { const a = ring[i], c = ring[(i + 1) % ring.length]; A2 += a.x * c.y - c.x * a.y; }
+    if (A2 < 0) ring.reverse(); // против часовой (в координатах x, z): снаружи — справа
+    let gmin = 1e9, gsum = 0;
+    for (const p of ring) { const g = ground ? ground(p.x, p.y) : groundY; gmin = Math.min(gmin, g); gsum += g; }
+    const gmean = gsum / ring.length;
+    const mh = mh0 > 0.5 ? mh0 : 0;
+    const y0 = mh ? gmean + mh : gmin - 0.6, y1 = gmean + Math.max(h, mh + 2);
+    const seed = Math.abs(b[4] * 7 + b[5] * 13) % 997;
+    let kind = kind0;
+    // жилые 5-этажки и ниже — чаще кирпичные, высокие — панельные
+    if (kind === 0 && h < 18 && seed % 3 === 0) kind = 1;
+    const pal = PALETTE[kind];
+    const tint = new THREE.Color(col && /^#[0-9a-f]{6}$|^[a-z]+$/i.test(col) ? col : pal[seed % pal.length]);
+    if (col) tint.lerp(white, 0.4);
+    const base = (kind === 0 || kind === 4 || kind === 2) && h > 9 && !mh; // первый этаж — витрины и входы
+    const yb = base ? Math.min(y1, gmean + 3.6) : y0;
     let u = 0;
+    const per = [];
     for (let i = 0; i < ring.length; i++) {
       const a = ring[i], c = ring[(i + 1) % ring.length];
       const dx = c.x - a.x, dz = c.y - a.y, L = Math.hypot(dx, dz);
       if (L < 0.05) continue;
-      const nx = dz / L, nz = -dx / L; // наружу (контур против часовой в кадре x,z)
-      const u0 = u / 3, u1 = (u + L) / 3, v0 = (y0 - groundY) / 3.1, v1 = (y1 - groundY) / 3.1;
-      const quad = [[a.x, y0, a.y, u0, v0], [c.x, y0, c.y, u1, v0], [c.x, y1, c.y, u1, v1], [a.x, y0, a.y, u0, v0], [c.x, y1, c.y, u1, v1], [a.x, y1, a.y, u0, v1]];
-      for (const q of quad) { pos.push(q[0], q[1], q[2]); nor.push(nx, 0, nz); uv.push(q[3] / 2, q[4] / 2); colr.push(tint.r, tint.g, tint.b); }
+      const nx = dz / L, nz = -dx / L;
+      per.push([a, c, L, nx, nz, u]);
       u += L;
     }
-    W.push({ pos, nor, uv, colr });
+    const quad = (arr, y0q, y1q, vOff, tintC, ext = 0) => {
+      const pos = [], nor = [], uv = [], colr = [];
+      for (const [a, c, L, nx, nz, u0] of per) {
+        const ax = a.x + nx * ext, az = a.y + nz * ext, cx = c.x + nx * ext, cz = c.y + nz * ext;
+        const U0 = u0 / 12, U1 = (u0 + L) / 12, V0 = (y0q - vOff) / 12.4, V1 = (y1q - vOff) / 12.4;
+        // снаружи — справа: обход (a0, c1, c0) смотрит наружу
+        const q = [[ax, y0q, az, U0, V0], [cx, y1q, cz, U1, V1], [cx, y0q, cz, U1, V0], [ax, y0q, az, U0, V0], [ax, y1q, az, U0, V1], [cx, y1q, cz, U1, V1]];
+        for (const v of q) { pos.push(v[0], v[1], v[2]); nor.push(nx, 0, nz); uv.push(v[3], v[4]); colr.push(tintC.r, tintC.g, tintC.b); }
+      }
+      arr.push({ pos, nor, uv, colr });
+    };
+    if (base && yb > y0 + 0.5) quad(walls[5], y0, yb, gmean, white);
+    quad(walls[kind] || walls[0], yb, y1, gmean, tint);
+    // парапет по краю крыши
+    if (h > 6) quad(parapets, y1, y1 + 0.7, y1, tmp.copy(tint).multiplyScalar(0.82), 0.02);
     // крыша
     let tri;
     try { tri = THREE.ShapeUtils.triangulateShape(ring, []); } catch (e) { tri = []; }
     const rp = [], rn = [], ru = [];
-    for (const [i0, i1, i2] of tri) for (const k of [i0, i2, i1]) { rp.push(ring[k].x, y1, ring[k].y); rn.push(0, 1, 0); ru.push(ring[k].x / 8, ring[k].y / 8); }
+    for (const [i0, i1, i2] of tri) {
+      const p0 = ring[i0], p1 = ring[i1], p2 = ring[i2];
+      const up = (p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x) < 0; // обход, при котором нормаль смотрит вверх
+      for (const p of up ? [p0, p1, p2] : [p0, p2, p1]) { rp.push(p.x, y1 + 0.05, p.y); rn.push(0, 1, 0); ru.push(p.x / 16, p.y / 16); }
+    }
     roofs.push({ pos: rp, nor: rn, uv: ru });
   }
   const toGeo = (arr, withColor) => {
@@ -233,9 +366,11 @@ function buildBuildings(list, groundY) {
   walls.forEach((arr, k) => {
     const g = toGeo(arr, true);
     if (!g) return;
-    const m = new THREE.MeshStandardMaterial({ map: F[k], vertexColors: true, roughness: k === 2 ? 0.25 : 0.85, metalness: k === 2 ? 0.3 : 0, side: THREE.DoubleSide });
+    const m = new THREE.MeshStandardMaterial({ map: F[k], vertexColors: true, roughness: k === 2 ? 0.2 : 0.85, metalness: k === 2 ? 0.35 : 0 });
     grp.add(new THREE.Mesh(g, m));
   });
+  const pg = toGeo(parapets, true);
+  if (pg) grp.add(new THREE.Mesh(pg, new THREE.MeshStandardMaterial({ color: 0xbdb8ae, vertexColors: true, roughness: 0.9, side: THREE.DoubleSide })));
   const rg = toGeo(roofs, false);
   if (rg) grp.add(new THREE.Mesh(rg, new THREE.MeshStandardMaterial({ map: F.roof, roughness: 0.95 })));
   return grp;
@@ -282,12 +417,42 @@ function buildTerrain(area, groundY, cut, cor) {
     map = new THREE.Texture(area.groundImg); map.needsUpdate = true; map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 8;
   }
   const m = new THREE.MeshStandardMaterial({ map, color: map ? 0xffffff : 0x8a8f7a, roughness: 0.95 });
+  // мелкая детализация поверх карты местности (асфальт, трава), чтобы вблизи земля не была размытой
+  const det = detailTexture();
+  const rep = new THREE.Vector2((tex.x1 - tex.x0) / 6, (tex.z1 - tex.z0) / 6);
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.detMap = { value: det }; sh.uniforms.detRep = { value: rep };
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D detMap; uniform vec2 detRep;')
+      .replace('#include <map_fragment>', '#include <map_fragment>\n#ifdef USE_MAP\n{ float d = texture2D(detMap, vMapUv * detRep).r; float d2 = texture2D(detMap, vMapUv * detRep * 0.23).g; diffuseColor.rgb *= 0.78 + 0.32 * d + 0.12 * (d2 - 0.5); }\n#endif');
+  };
+  m.customProgramCacheKey = () => 'osm-terrain';
   const mesh = new THREE.Mesh(g, m);
   // поверхность воды
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(b[2] - b[0], b[3] - b[1]).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x3c5a6e, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.92 }));
-  water.position.set((b[0] + b[2]) / 2, groundY - WATER_DEPTH, (b[1] + b[3]) / 2);
+  // поверхность воды — только над руслом (иначе плоскость воды прорезала бы тоннели)
+  const wp = [], wy = groundY - WATER_DEPTH;
+  for (let j = 0; j < nz - 1; j++) for (let i = 0; i < nx - 1; i++) {
+    const x = b[0] + (i + 0.5) * step, z = b[1] + (j + 0.5) * step;
+    let ww = 0; for (const [dx, dz] of [[0, 0], [8, 0], [-8, 0], [0, 8], [0, -8]]) ww = Math.max(ww, wAt(x + dx, z + dz));
+    if (ww < 0.08) continue;
+    const x0 = x - step / 2, x1 = x + step / 2, z0 = z - step / 2, z1 = z + step / 2;
+    wp.push(x0, wy, z0, x0, wy, z1, x1, wy, z0, x1, wy, z0, x0, wy, z1, x1, wy, z1);
+  }
   const grp = new THREE.Group();
-  grp.add(mesh, water);
+  grp.add(mesh);
+  // высота рельефа в точке (билинейно по сетке) — для посадки зданий и деревьев
+  grp.userData.height = (x, z) => {
+    const fi = Math.max(0, Math.min(nx - 1.001, (x - b[0]) / step)), fj = Math.max(0, Math.min(nz - 1.001, (z - b[1]) / step));
+    const i = Math.floor(fi), j = Math.floor(fj), u = fi - i, v = fj - j;
+    const Y = (ii, jj) => pos[(jj * nx + ii) * 3 + 1];
+    return (Y(i, j) * (1 - u) + Y(i + 1, j) * u) * (1 - v) + (Y(i, j + 1) * (1 - u) + Y(i + 1, j + 1) * u) * v;
+  };
+  if (wp.length) {
+    const wg = new THREE.BufferGeometry();
+    wg.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
+    wg.computeVertexNormals();
+    grp.add(new THREE.Mesh(wg, new THREE.MeshStandardMaterial({ color: 0x3c5a6e, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.92, side: THREE.DoubleSide })));
+  }
   if (cor) {
     const strip = corridorStrip(cor, groundY, tex);
     if (strip) grp.add(new THREE.Mesh(strip, Object.assign(m.clone(), { side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })));
@@ -334,27 +499,69 @@ function corridorStrip(cor, groundY, tex) {
   return g;
 }
 
-function treeGeo() {
-  return mergeGeoms([cylGeom(0.14, 0.2, 2.4, 6, 0, 1.2, 0), cylGeom(0.0, 2.3, 5.2, 8, 0, 4.6, 0), cylGeom(0.0, 1.8, 3.4, 8, 0, 7.0, 0)]);
+let DET = null;
+function detailTexture() {
+  if (DET) return DET;
+  const S = 256, c = makeCanvas(S, S), ctx = c.getContext('2d');
+  const img = ctx.createImageData(S, S), r = mulberry32(41);
+  // r — мелкое зерно, g — крупные пятна
+  const big = new Float32Array(17 * 17); for (let i = 0; i < big.length; i++) big[i] = r();
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const fx = x / S * 16, fy = y / S * 16, ix = Math.floor(fx), iy = Math.floor(fy), u = fx - ix, v = fy - iy;
+    const B = (a, b) => big[(b % 16) * 17 + (a % 16)];
+    const g = (B(ix, iy) * (1 - u) + B(ix + 1, iy) * u) * (1 - v) + (B(ix, iy + 1) * (1 - u) + B(ix + 1, iy + 1) * u) * v;
+    const k = (y * S + x) * 4;
+    img.data[k] = 128 + (r() - 0.5) * 200; img.data[k + 1] = g * 255; img.data[k + 2] = 128; img.data[k + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  DET = canvasTex(c, { srgb: false, aniso: 8 }); DET.userData.shared = true;
+  return DET;
 }
 
-function buildTrees(list, groundY, max) {
+function crown(r, y, x = 0, z = 0) {
+  const g = new THREE.IcosahedronGeometry(r, 1);
+  const p = g.attributes.position, rr = mulberry32(Math.round((r + y + x) * 100));
+  for (let i = 0; i < p.count; i++) { const k = 0.85 + rr() * 0.3; p.setXYZ(i, p.getX(i) * k + x, p.getY(i) * k * 0.85 + y, p.getZ(i) * k + z); }
+  g.deleteAttribute('uv');
+  return g.toNonIndexed();
+}
+function treeGeos() {
+  const trunk = (h) => { const g = cylGeom(0.16, 0.24, h, 6, 0, h / 2, 0); g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; };
+  const leaf = mergeGeoms([trunk(3.2), crown(2.6, 5.2), crown(1.9, 6.6, 0.9, 0.4), crown(1.8, 5.6, -1.0, -0.6)]); // липа, клён, тополь
+  const birch = mergeGeoms([trunk(4.2), crown(1.6, 5.6, 0, 0), crown(1.3, 7.0, 0.3, 0.2)]);
+  const fir = mergeGeoms([trunk(2.4), cylGeom(0.0, 2.2, 5.2, 8, 0, 4.6, 0), cylGeom(0.0, 1.7, 3.4, 8, 0, 7.0, 0)].map((g) => { if (g.attributes.uv) g.deleteAttribute('uv'); return g.index ? g.toNonIndexed() : g; }));
+  return [leaf, birch, fir];
+}
+
+function buildTrees(list, groundY, max, ground) {
   const n = Math.min(max, list.length / 2);
   if (!n) return null;
-  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
-  const inst = new THREE.InstancedMesh(treeGeo(), m, n);
+  const grp = new THREE.Group();
+  const geos = treeGeos();
+  const share = [0.72, 0.18, 0.10];
   const M = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), c = new THREE.Color();
   const rng = mulberry32(7);
-  for (let i = 0; i < n; i++) {
-    const k = 0.8 + rng() * 0.9;
-    s.set(k, k * (0.8 + rng() * 0.5), k);
-    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng() * 6.28);
-    p.set(list[i * 2] / 10, groundY, list[i * 2 + 1] / 10);
-    M.compose(p, q, s); inst.setMatrixAt(i, M);
-    inst.setColorAt(i, c.setHSL(0.25 + rng() * 0.08, 0.35 + rng() * 0.2, 0.2 + rng() * 0.12));
-  }
-  inst.computeBoundingSphere();
-  return inst;
+  const pick = []; for (let i = 0; i < n; i++) { const r = rng(); pick.push(r < share[0] ? 0 : r < share[0] + share[1] ? 1 : 2); }
+  geos.forEach((geo, t) => {
+    const idx = []; pick.forEach((v, i) => { if (v === t) idx.push(i); });
+    if (!idx.length) return;
+    const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true });
+    const inst = new THREE.InstancedMesh(geo, m, idx.length);
+    const r2 = mulberry32(11 + t);
+    idx.forEach((i, k) => {
+      const sc = 0.75 + r2() * 0.8;
+      s.set(sc, sc * (0.85 + r2() * 0.4), sc);
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r2() * 6.28);
+      const x = list[i * 2] / 10, z = list[i * 2 + 1] / 10;
+      p.set(x, (ground ? ground(x, z) : groundY) - 0.1, z);
+      M.compose(p, q, s); inst.setMatrixAt(k, M);
+      const hue = t === 2 ? 0.33 : 0.22 + r2() * 0.08;
+      inst.setColorAt(k, c.setHSL(hue, 0.35 + r2() * 0.2, t === 2 ? 0.16 + r2() * 0.06 : 0.22 + r2() * 0.12));
+    });
+    inst.computeBoundingSphere();
+    grp.add(inst);
+  });
+  return grp;
 }
 
 function buildRoadBridges(list, groundY) {
@@ -409,9 +616,11 @@ export function buildOsmEnv(id, matrix, { cut = null, maxTrees = 6000, corridor 
     for (let i = 0; i < trees.length; i += 2) if (!ix.near(trees[i] / 10, trees[i + 1] / 10, corridor.clearT)) tr.push(trees[i], trees[i + 1]);
     trees = tr;
   }
-  g.add(buildTerrain(area, GROUND_Y, cut, corridor));
-  g.add(buildBuildings(blds, GROUND_Y));
-  const t = buildTrees(trees, GROUND_Y, maxTrees);
+  const terr = buildTerrain(area, GROUND_Y, cut, corridor);
+  g.add(terr);
+  const H = terr.userData.height;
+  g.add(buildBuildings(blds, GROUND_Y, H));
+  const t = buildTrees(trees, GROUND_Y, maxTrees, H);
   if (t) g.add(t);
   const rb = buildRoadBridges(d.roadBridges, GROUND_Y);
   if (rb) g.add(rb);
