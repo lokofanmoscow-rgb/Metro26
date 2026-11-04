@@ -65,6 +65,13 @@ function arc(cx, cy, rx, ry, a0, a1, n) {
 
 // стенка-торец с проёмами тоннелей
 function endWall(z, x0, x1, y0, y1, holes, deep, facing) {
+  // контур стены обязательно охватывает проёмы с запасом — иначе триангуляция
+  // ломается и проём тоннеля оказывается заложен сплошной стеной
+  const hw = deep ? TUBE_R : BOX_W;
+  x0 = Math.min(x0, Math.min(...holes) - hw - 0.4);
+  x1 = Math.max(x1, Math.max(...holes) + hw + 0.4);
+  y0 = Math.min(y0, TUBE_CY - TUBE_R - 0.6);
+  y1 = Math.max(y1, (deep ? TUBE_CY + TUBE_R : BOX_TOP) + 0.4);
   const sh = new THREE.Shape();
   sh.moveTo(x0, y0); sh.lineTo(x1, y0); sh.lineTo(x1, y1); sh.lineTo(x0, y1); sh.lineTo(x0, y0);
   for (const hx of holes) {

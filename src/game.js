@@ -360,7 +360,7 @@ export class Game {
       if (err > 6) { this._msg(`Проезд остановочной отметки на ${err.toFixed(1)} м — первый вагон вне платформы`); return; }
       if (err < -12) { this._msg(`Не доехали до остановочной отметки ${(-err).toFixed(1)} м`); return; }
       this.doorTarget = 1; this.doorsMoving = true;
-      this.sound.doors(true);
+      this.sound.doors(true, this.trainId);
       if (!this.servedSet.has(k)) {
         this.servedSet.add(k);
         const a = Math.abs(err);
@@ -393,7 +393,7 @@ export class Game {
       this.crowd.doorsClosing();
       const next = R.stations[(k ?? R.nextStationIndex(this.s)) + 1];
       if (next) this.sound.say(`Осторожно, двери закрываются. Следующая станция — ${next.name}.`);
-      setTimeout(() => this.sound.doors(false), 1400);
+      this.sound.doors(false, this.trainId);
     }
   }
 
@@ -541,7 +541,7 @@ export class Game {
     const ctrl = this.train.cab.ctrl;
     const pos = this.traction - Math.max(this.brake, autoBr);
     if (this.trainId === '717') ctrl.rotation.y = -pos * 0.9; else ctrl.rotation.x = -pos * 0.6;
-    this.sound.update({ v: this.v, traction: this.traction, brake: Math.max(this.brake, autoBr), type: this.trainId, overspeed: over, cab: this.view.mode === 'cab', atStation: !!R.stationAt(this.s) && this.v < 3, outdoor });
+    this.sound.update({ v: this.v, traction: this.traction, brake: Math.max(this.brake, autoBr), type: this.trainId, overspeed: over, cab: this.view.mode === 'cab', atStation: !!R.stationAt(this.s) && this.v < 3, outdoor, env: outdoor ? 'outdoor' : R.stationAt(this.s) ? 'station' : 'tunnel' });
     const axles = [];
     for (const sc of this.train.sections.slice(0, 2)) for (const bz of sc.bogieZ) { const c = sc.off + sc.Lb / 2 + bz; axles.push(c - 1.05, c + 1.05); }
     this.sound.joints(this.s, this.v, axles, outdoor);

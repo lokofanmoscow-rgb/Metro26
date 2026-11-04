@@ -142,13 +142,22 @@ export function buildTunnelChunk(route, s0, s1, deep) {
 
 // Кольцевая стенка на стыке круглого и прямоугольного тоннелей
 export function buildTransitionRing(route, s) {
+  // стенка на стыке круглого и прямоугольного тоннелей: всё, кроме их общего сечения
   const shape = new THREE.Shape();
-  shape.absarc(0, TUBE_CY, TUBE_R + 0.05, 0, Math.PI * 2, false);
+  const X = TUBE_R + 0.6, Y0 = TUBE_CY - TUBE_R - 0.6, Y1 = Math.max(BOX_TOP, TUBE_CY + TUBE_R) + 0.6;
+  shape.moveTo(-X, Y0); shape.lineTo(X, Y0); shape.lineTo(X, Y1); shape.lineTo(-X, Y1); shape.lineTo(-X, Y0);
+  // общее сечение: точки окружности, прижатые внутрь прямоугольника
   const hole = new THREE.Path();
-  hole.moveTo(-BOX_W, BED_Y - 0.4); hole.lineTo(BOX_W, BED_Y - 0.4); hole.lineTo(BOX_W, BOX_TOP); hole.lineTo(-BOX_W, BOX_TOP); hole.lineTo(-BOX_W, BED_Y - 0.4);
+  const n = 64;
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const x = Math.max(-BOX_W, Math.min(BOX_W, Math.cos(a) * TUBE_R));
+    const y = Math.max(BED_Y - 0.3, Math.min(BOX_TOP, TUBE_CY + Math.sin(a) * TUBE_R));
+    if (i === 0) hole.moveTo(x, y); else hole.lineTo(x, y);
+  }
   shape.holes.push(hole);
-  const geo = new THREE.ShapeGeometry(shape, 24);
-  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x55524c, side: THREE.DoubleSide }));
+  const geo = new THREE.ShapeGeometry(shape, 1);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x4a4741, side: THREE.DoubleSide }));
   mesh.applyMatrix4(route.matrixAt(s));
   return mesh;
 }

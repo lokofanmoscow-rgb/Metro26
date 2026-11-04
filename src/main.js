@@ -372,6 +372,7 @@ function boot() {
   game = new Game($('view'), ui);
   const st = store.read(SET_KEY, null);
   if (st) { hudOn = st.hud !== false; game.applySettings(st); }
+  else if (/Android|iPhone|iPad/i.test(navigator.userAgent) || window.AndroidTTS) game.applySettings({ quality: 1 });
   renderLines(); renderDirs(); renderTrains();
   $('btnStart').onclick = () => startGame();
   $('btnContinue').onclick = () => { const a = saves.all().auto; if (a) { $('optShort').checked = !!a.data.short; startGame(a.data); } };
@@ -423,6 +424,26 @@ function boot() {
     if (data && data.save) { $('optShort').checked = !!data.save.short; startGame(data.save); } else refreshShowroom();
   };
 }
+
+// Android: кнопка «Назад» и сворачивание приложения
+window.__androidBack = () => {
+  const open = (id) => !$(id).classList.contains('hidden');
+  if (open('confirm')) { $('cfNo').click(); return 'ok'; }
+  if (open('mapPanel')) { closeMap(); return 'ok'; }
+  if (open('dialog')) { $('dialog').classList.add('hidden'); return 'ok'; }
+  if (inGame) {
+    if (open('finish')) { $('finish').classList.add('hidden'); toMenu(); return 'ok'; }
+    pause(!game.paused);
+    return 'ok';
+  }
+  return 'exit';
+};
+window.__androidPause = () => {
+  if (inGame && !game.finished) {
+    saves.put('auto', game.serialize());
+    if (!game.paused) pause(true);
+  }
+};
 
 const start = boot();
 if (window.claude?.hot?.ready) window.claude.hot.ready(start); else start(window.claude?.hot?.data ?? {});
