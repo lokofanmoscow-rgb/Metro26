@@ -46,7 +46,7 @@ export class Crowd {
     this.meshes = {};
     for (const [name, mk, , count] of PARTS) {
       const geo = mk();
-      const m = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: name === 'shoe' ? 0.4 : 0.85, metalness: 0 }), cap * count);
+      const m = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: name === 'shoe' ? 0.4 : 0.85, metalness: 0, side: THREE.DoubleSide }), cap * count);
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.frustumCulled = false;
       m.count = 0;
@@ -137,8 +137,9 @@ export class Crowd {
   }
 
   // двери открылись: выходят пассажиры из вагонов, ожидающие идут к дверям
-  doorsOpened(doorsWorld, loadFactor = 1) {
+  doorsOpened(doorsWorld, loadFactor = 1, side = -1) {
     if (!this.station) return;
+    this.doorSide = side;
     const v = new THREE.Vector3();
     const pl = this.station.info.platform;
     this.doors = doorsWorld.map((d) => { v.copy(d).applyMatrix4(this.inv); return { x: v.x, z: v.z, sec: d.sec, lz: d.lz }; })
@@ -155,7 +156,7 @@ export class Crowd {
         let best = doorsHere[0];
         for (const dd of doorsHere) if (Math.abs(dd.d.lz - p.z) < Math.abs(best.d.lz - p.z)) best = dd;
         p.state = 'toDoorCar'; p.door = best.i; p.wait = r() * 2.5;
-        p.tx = DOOR_IN_X + (r() - 0.5) * 0.3; p.tz = best.d.lz + (r() - 0.5) * 0.5;
+        p.tx = DOOR_IN_X * -side + (r() - 0.5) * 0.3; p.tz = best.d.lz + (r() - 0.5) * 0.5;
         if (p.spot) { p.spot.used = false; p.spot = null; }
         p.sit = false;
       }
@@ -311,8 +312,12 @@ export class Crowd {
     for (let i = 0; i < n; i++) {
       const p = this.people[i];
       let parent;
-      if (p.frame === 'car') { const s = p.train && p.train.sections[p.sec]; if (!s) continue; parent = s.group.matrix; }
-      else { if (!this.matrix) continue; parent = this.matrix; }
+      let hide = false;
+      if (p.frame === 'car') {
+        const s = p.train && p.train.sections[p.sec]; if (!s) continue; parent = s.group.matrix;
+        // секция скрыта (встречный поезд за торцом зала) — скрываем и её пассажиров
+        hide = !s.group.visible || !p.train.group.visible;
+      } else { if (!this.matrix) continue; parent = this.matrix; }
       const walking = p.moving;
       const sw = walking ? Math.sin(p.phase) : 0;
       const bob = walking ? Math.abs(Math.cos(p.phase)) * 0.025 : 0;
@@ -320,7 +325,7 @@ export class Crowd {
       const sit = p.sit && !walking;
       // корневая матрица человека
       e.set(0, p.yaw, 0); q.setFromEuler(e);
-      sc3.set(p.h * p.wide, p.h, p.h);
+      if (hide) sc3.set(0, 0, 0); else sc3.set(p.h * p.wide, p.h, p.h);
       v.set(p.x, baseY + bob, p.z);
       B.compose(v, q, sc3).premultiply(parent);
       const hipY = sit ? HIP_SIT : HIP;

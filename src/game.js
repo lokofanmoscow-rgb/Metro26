@@ -191,16 +191,16 @@ export class Game {
     this.view.mode = showroom ? 'menu' : 'cab';
     this.view.yaw = 0; this.view.pitch = -0.08;
     this.train.cab.group.visible = !showroom;
-    if (state?.doorsOpen) { this.doorF = 1; this.doorTarget = 1; this.train.setDoors(1); }
+    if (state?.doorsOpen) { this.doorF = 1; this.doorTarget = 1; this.train.setDoors(1, this._doorSide()); }
     // на старте — посадка на первой станции
     const stNow = this._stationNear();
     if (!showroom && stNow && Math.abs(this.s - stNow.st.stop) < 1 && !state) {
       this._prepareCrowd(stNow, true);
-      this.doorTarget = 1; this.doorF = 1; this.train.setDoors(1);
+      this.doorTarget = 1; this.doorF = 1; this.train.setDoors(1, this._doorSide());
       this.atStation = stNow.st.k;
       this._dwellStart = this.elapsed;
       this.servedSet.add(stNow.st.k);
-      this.crowd.doorsOpened(this.train.doorWorld(), 0);
+      this.crowd.doorsOpened(this.train.doorWorld(this._doorSide()), 0, this._doorSide());
       this._msg(`Станция «${stNow.st.name}». Идёт посадка. Закройте двери [Пробел] и начинайте движение [W].`, 7);
     } else if (showroom && stNow) {
       this._prepareCrowd(stNow, true);
@@ -272,7 +272,7 @@ export class Game {
     } else if (it.kind === 'tu') obj = buildTunnelChunk(R, it.a, it.b, it.deep);
     else if (it.kind === 'od') obj = buildOutdoorChunk(R, it.a, it.b, it.zone);
     else if (it.kind === 'env') obj = buildOutdoorEnv(R, it.zone);
-    else if (it.kind === 'po') obj = buildPortal(R, it.at, it.fwd, it.zone.out);
+    else if (it.kind === 'po') obj = buildPortal(R, it.at, it.fwd, it.zone);
     else if (it.kind === 'tr') obj = buildTransitionRing(R, it.at);
     if (!obj) return;
     it.obj = obj;
@@ -302,6 +302,11 @@ export class Game {
   }
 
   _stationObj(k) { return this.loaded.get('st:' + k)?.built || null; }
+  // сторона посадки: -1 — слева (островная платформа), +1 — справа (боковая платформа)
+  _doorSide() {
+    const near = this._stationNear();
+    return (near && near.obj && near.obj.info.side) || -1;
+  }
 
   _stationNear() {
     const R = this.route;
@@ -426,7 +431,7 @@ export class Game {
       const near = this._stationNear();
       if (near && this._crowdStation !== k) this._prepareCrowd(near, false);
       const last = k === R.stations.length - 1;
-      setTimeout(() => this.crowd.doorsOpened(this.train.doorWorld(), last ? 3.5 : 1), 900);
+      setTimeout(() => this.crowd.doorsOpened(this.train.doorWorld(this._doorSide()), last ? 3.5 : 1, this._doorSide()), 900);
       if (last) setTimeout(() => this._msg('Конечная. Дождитесь высадки пассажиров.', 5), 1500);
     } else {
       const R = this.route;
@@ -478,9 +483,9 @@ export class Game {
     const near = this._stationNear();
     if (near) {
       this._prepareCrowd(near, true);
-      this.doorTarget = 1; this.doorF = 1; this.train.setDoors(1);
+      this.doorTarget = 1; this.doorF = 1; this.train.setDoors(1, this._doorSide());
       this.atStation = 0; this.servedSet.add(0);
-      this.crowd.doorsOpened(this.train.doorWorld(), 0);
+      this.crowd.doorsOpened(this.train.doorWorld(this._doorSide()), 0, this._doorSide());
       this._msg(`Обратный рейс до станции «${R.stations[R.stations.length - 1].name}». Идёт посадка.`, 6);
     }
   }
@@ -549,7 +554,7 @@ export class Game {
       if (lagged) this._closeDelay = 1.4;
       if (this._closeDelay > 0) this._closeDelay -= dt;
       else this.doorF = clamp(this.doorF + Math.sign(this.doorTarget - this.doorF) * sp * dt, 0, 1);
-      this.train.setDoors(this.doorF);
+      this.train.setDoors(this.doorF, this._doorSide());
       if (this.doorF === this.doorTarget) {
         this.doorsMoving = false; this._closeDelay = null;
         if (this.doorTarget === 0) { this._msg('Двери закрыты. Можно отправляться.', 2.5); this.intervals.set(this.atStation, 0); }
@@ -780,11 +785,12 @@ export class Game {
       const off = new THREE.Vector3(Math.sin(this.view.oyaw) * Math.cos(this.view.opitch) * d, Math.sin(this.view.opitch) * d, Math.cos(this.view.oyaw) * Math.cos(this.view.opitch) * d);
       const p = target.clone().add(off);
       // не выходить за пределы зала
-      p.y = clamp(p.y, 1.7, 7.5);
+      p.y = clamp(p.y, 1.7, (near && near.obj.info.camY) || 7.5);
       // камера остаётся на платформе (со стороны посадки), перед головой поезда — может выйти на путь
       p.z = clamp(p.z, -83.2, 83);
       const headZ = near ? near.st.c - this.s : -78;
-      p.x = clamp(p.x, near ? near.obj.info.oppX + 1.6 : -14, p.z < headZ - 1.2 ? 1.9 : -1.75);
+      const cx = near && near.obj.info.camX;
+      p.x = cx ? clamp(p.x, cx[0], p.z < headZ - 1.2 ? cx[1] : -1.75) : clamp(p.x, near ? near.obj.info.oppX + 1.6 : -14, p.z < headZ - 1.2 ? 1.9 : -1.75);
       // не ставим камеру внутрь пилонов
       if (near && near.obj.info.noCam) for (const [a0, a1] of near.obj.info.noCam) if (p.x > a0 && p.x < a1) p.x = (p.x - a0 < a1 - p.x) ? a0 : a1;
       cam.position.copy(p).applyMatrix4(M);
@@ -819,7 +825,7 @@ export class Game {
       const cp = this.camera.position;
       const pts = ls.map((l) => l.clone().applyMatrix4(M)).sort((a, b) => a.distanceToSquared(cp) - b.distanceToSquared(cp));
       this.pool.forEach((l, i) => {
-        if (i < pts.length) { l.position.copy(pts[i]); l.intensity = (o.info.hq ? (o.info.poolI || 18) : 26) * (best.style.t === 'ground' || best.style.t === 'bridge' ? 0.4 : 1); }
+        if (i < pts.length) { l.position.copy(pts[i]); l.intensity = (o.info.hq ? (o.info.poolI || 18) : 26) * (['ground', 'bridge', 'side'].includes(best.style.t) ? 0.4 : 1); }
         else l.intensity = 0;
       });
     } else this.pool.forEach((l) => { l.intensity = 0; });

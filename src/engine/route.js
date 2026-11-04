@@ -3,6 +3,7 @@
 // Система координат поезда/станции: вперёд = -Z, вправо = +X, вверх = +Y.
 import * as THREE from 'three';
 import { mulberry32, hashStr, clamp } from './util.js';
+import { trackPolyline, frameMatrix } from './osm.js';
 
 export const PLATFORM_LEN = 162;
 export const STOP_OFFSET = 78; // от центра платформы до остановочной отметки (голова поезда)
@@ -18,8 +19,12 @@ function ease(t, b = 0.28) {
   return (t - b / 2) / (1 - b);
 }
 
+export const BRIDGE_RISE = 5; // подъём пути на открытых метромостах над землёй
+export const PORTAL_D = 6.5; // глубина пути у портала (рампа ниже уровня земли)
+export const GLASS_TYPES = ['ground', 'bridge', 'side'];
+
 export function stationLevel(st) {
-  if (st.t === 'ground' || st.t === 'bridge') return 0;
+  if (GLASS_TYPES.includes(st.t)) return 0;
   const dp = st.dp || 8;
   return -(5 + Math.min(dp, 55) * 0.42);
 }
@@ -51,10 +56,18 @@ export class Route {
     });
     const byName = Object.fromEntries(fwd.map((s, i) => [s.n, i]));
     this.outdoor = (line.outdoor || []).map((o) => {
+      if (o.osm) {
+        // реальная ось из OpenStreetMap; участок привязан к станции внутри него
+        const poly = trackPolyline(o.osm, !!o.rev !== (dir === 1));
+        const c = toRoute(cf[byName[o.anchor]]);
+        const s0 = c - poly.station;
+        return { s0, s1: s0 + poly.length, kind: o.kind, osm: o.osm, poly, oppX: o.kind === 'open' ? -poly.spacing : -12.96, rev: !!o.rev !== (dir === 1) };
+      }
       const a = toRoute(cf[byName[o.from[0]]] + o.from[1]);
       const b = toRoute(cf[byName[o.to[0]]] + o.to[1]);
-      return { s0: Math.min(a, b), s1: Math.max(a, b), kind: o.kind };
+      return { s0: Math.min(a, b), s1: Math.max(a, b), kind: o.kind, oppX: -12.96 };
     });
+    this.polyZones = this.outdoor.filter((o) => o.poly);
     this._buildPlan();
     this._buildProfile();
     this._buildZones();
@@ -62,9 +75,12 @@ export class Route {
 
   _buildPlan() {
     const rng = mulberry32(hashStr(this.line.id + ':' + this.dir));
-    const straight = [];
+    const polys = [...this.polyZones].sort((a, b) => a.s0 - b.s0);
+    const inPoly = (a, b) => polys.filter((p) => b > p.s0 && a < p.s1);
+    // прямые участки: станции и прочие наземные участки, кроме попавших на реальную ось
+    let straight = [];
     for (const st of this.stations) straight.push([st.c - ZONE_HALF, st.c + ZONE_HALF]);
-    for (const o of this.outdoor) straight.push([o.s0 - 40, o.s1 + 40]);
+    for (const o of this.outdoor) if (!o.poly) straight.push([o.s0 - 40, o.s1 + 40]);
     straight.sort((a, b) => a[0] - b[0]);
     const merged = [];
     for (const iv of straight) {
@@ -72,7 +88,19 @@ export class Route {
       if (last && iv[0] <= last[1]) last[1] = Math.max(last[1], iv[1]);
       else merged.push([...iv]);
     }
-    const segs = []; // {len, k}
+    // вычитаем участки с реальной осью
+    straight = [];
+    for (const [a, b] of merged) {
+      let parts = [[a, b]];
+      for (const p of inPoly(a, b)) {
+        const next = [];
+        for (const [x, y] of parts) { if (y <= p.s0 || x >= p.s1) next.push([x, y]); else { if (x < p.s0) next.push([x, p.s0]); if (y > p.s1) next.push([p.s1, y]); } }
+        parts = next;
+      }
+      straight.push(...parts);
+    }
+    const fixed = [...straight.map(([a, b]) => ({ a, b, type: 's' })), ...polys.map((p) => ({ a: p.s0, b: p.s1, type: 'p', zone: p }))].sort((x, y) => x.a - y.a);
+    const segs = []; // {len, k} или {len, poly}
     let s = 0;
     const pushFree = (a, b) => {
       const L = b - a;
@@ -97,10 +125,11 @@ export class Route {
         if (i < nc) segs.push(arcs[i]);
       }
     };
-    for (const [a, b] of merged) {
-      const a2 = Math.max(a, 0), b2 = Math.min(b, this.length);
+    for (const f of fixed) {
+      const a2 = Math.max(f.a, 0), b2 = Math.min(f.b, this.length);
       if (a2 > s) pushFree(s, a2);
-      if (b2 > Math.max(s, a2)) segs.push({ len: b2 - Math.max(s, a2), k: 0 });
+      const st = Math.max(s, a2);
+      if (b2 > st) segs.push(f.type === 'p' ? { len: b2 - st, zone: f.zone } : { len: b2 - st, k: 0 });
       s = Math.max(s, b2);
     }
     if (s < this.length) segs.push({ len: this.length - s, k: 0 });
@@ -109,13 +138,39 @@ export class Route {
     let x = 0, z = 0, h = 0; s = 0;
     for (const sg of segs) {
       if (sg.len <= 0.01) continue;
-      this.pieces.push({ s0: s, len: sg.len, k: sg.k, x0: x, z0: z, h0: h });
-      const p = this._piecePos(this.pieces[this.pieces.length - 1], sg.len);
+      const pc = { s0: s, len: sg.len, k: sg.k || 0, x0: x, z0: z, h0: h };
+      if (sg.zone) {
+        // реальная ось: поворачиваем полилинию OSM так, чтобы её начало продолжило трассу
+        const P = sg.zone.poly;
+        const beta = h - P.hs[0];
+        const cb = Math.cos(beta), sb = Math.sin(beta);
+        const n = P.pts.length;
+        const wx = new Float64Array(n), wz = new Float64Array(n), wh = new Float64Array(n);
+        const p0 = P.pts[0];
+        for (let i = 0; i < n; i++) {
+          const dx = P.pts[i].x - p0.x, dz = P.pts[i].z - p0.z;
+          wx[i] = x + cb * dx + sb * dz; wz[i] = z - sb * dx + cb * dz; wh[i] = P.hs[i] + beta;
+        }
+        pc.poly = { wx, wz, wh, ks: P.ks };
+        sg.zone.envMatrix = frameMatrix(beta, p0.x, p0.z, x, 0, z);
+      }
+      this.pieces.push(pc);
+      const p = this._piecePos(pc, sg.len);
       x = p.x; z = p.z; h = p.h; s += sg.len;
     }
   }
 
   _piecePos(pc, t) {
+    if (pc.poly) {
+      const P = pc.poly, n = P.wx.length;
+      const tt = clamp(t, 0, n - 1);
+      const i = Math.min(n - 2, Math.floor(tt)), f = tt - i;
+      if (t > n - 1) { // за концом полилинии — по прямой
+        const e = t - (n - 1);
+        return { x: P.wx[n - 1] - Math.sin(P.wh[n - 1]) * e, z: P.wz[n - 1] - Math.cos(P.wh[n - 1]) * e, h: P.wh[n - 1] };
+      }
+      return { x: P.wx[i] + (P.wx[i + 1] - P.wx[i]) * f, z: P.wz[i] + (P.wz[i + 1] - P.wz[i]) * f, h: P.wh[i] + (P.wh[i + 1] - P.wh[i]) * f };
+    }
     const { k, x0, z0, h0 } = pc;
     if (Math.abs(k) < 1e-9) return { x: x0 - Math.sin(h0) * t, z: z0 - Math.cos(h0) * t, h: h0 };
     const h = h0 + k * t;
@@ -138,6 +193,7 @@ export class Route {
     const ctrl = [];
     const st = this.stations;
     const inOut = (s) => this.outdoor.some((o) => s >= o.s0 - 1 && s <= o.s1 + 1);
+    const done = new Set();
     ctrl.push({ s: -1000, y: st[0].level });
     for (let i = 0; i < st.length; i++) {
       ctrl.push({ s: st[i].c - ZONE_HALF, y: st[i].level });
@@ -146,8 +202,9 @@ export class Route {
         const a = st[i].c + ZONE_HALF, b = st[i + 1].c - ZONE_HALF;
         const outs = this.outdoor.filter((o) => o.s1 > a && o.s0 < b);
         for (const o of outs) {
-          if (o.s0 > a) ctrl.push({ s: o.s0, y: 0 });
-          if (o.s1 < b) ctrl.push({ s: o.s1, y: 0 });
+          if (o.kind === 'open' && o.poly) { if (!done.has(o)) { done.add(o); this._openProfile(o, o.s0 > 1, o.s1 < this.length - 1, ctrl); } continue; }
+          if (o.s0 > a) ctrl.push({ s: o.s0, y: 0, keep: true });
+          if (o.s1 < b) ctrl.push({ s: o.s1, y: 0, keep: true });
         }
         if (!outs.length && st[i].level < -1 && st[i + 1].level < -1) {
           const L = b - a;
@@ -158,8 +215,38 @@ export class Route {
     }
     ctrl.push({ s: this.length + 1000, y: st[st.length - 1].level });
     ctrl.sort((p, q) => p.s - q.s);
+    for (let i = ctrl.length - 1; i > 0; i--) if (ctrl[i].s - ctrl[i - 1].s < 0.5) ctrl.splice(ctrl[i].keep ? i - 1 : i, 1);
     // убрать подземные точки внутри открытых участков
-    this.yCtrl = ctrl.filter((p) => !(inOut(p.s) && p.y !== 0));
+    this.yCtrl = ctrl.filter((p) => p.keep || !(inOut(p.s) && p.y !== 0));
+  }
+
+  // Профиль реального открытого участка: рампы от порталов, подъёмы на метромосты.
+  // o.brEff — фактические пролёты мостов (локальные s), укороченные, чтобы уместились уклоны.
+  _openProfile(o, portal0, portal1, ctrl) {
+    const L = o.s1 - o.s0;
+    const G = 0.035;
+    const r0 = portal0 ? PORTAL_D : 0, r1 = portal1 ? PORTAL_D : 0;
+    const br = [];
+    for (const [x0, y0] of o.poly.bridges) {
+      const x = Math.max(x0, portal0 ? (PORTAL_D + BRIDGE_RISE) / G : 0);
+      const y = Math.min(y0, portal1 ? L - (PORTAL_D + BRIDGE_RISE) / G : L);
+      if (y - x > 20) br.push([x, y]);
+    }
+    o.brEff = br;
+    const key = [{ s: 0, y: portal0 ? -r0 : (br.length && br[0][0] < 1 ? BRIDGE_RISE : 0) }];
+    for (const [x, y] of br) { key.push({ s: x, y: BRIDGE_RISE, open: true }, { s: y, y: BRIDGE_RISE }); }
+    key.push({ s: L, y: portal1 ? -r1 : (br.length && br[br.length - 1][1] > L - 1 ? BRIDGE_RISE : 0) });
+    const pts = [key[0]];
+    for (let i = 1; i < key.length; i++) {
+      const p = key[i - 1], q = key[i];
+      const need = (Math.abs(p.y) + Math.abs(q.y)) / G;
+      if (!p.open && q.s - p.s > need + 20) {
+        if (p.y !== 0) pts.push({ s: p.s + Math.abs(p.y) / G, y: 0 });
+        if (q.y !== 0) pts.push({ s: q.s - Math.abs(q.y) / G, y: 0 });
+      }
+      pts.push(q);
+    }
+    for (const p of pts) ctrl.push({ s: o.s0 + p.s, y: p.y, keep: true });
   }
 
   y(s) {
@@ -181,7 +268,7 @@ export class Route {
     const st = this.stations;
     const cuts = [];
     for (const x of st) cuts.push({ s0: x.c - HALL_HALF, s1: x.c + HALL_HALF, kind: 'station', st: x });
-    for (const o of this.outdoor) cuts.push({ s0: o.s0, s1: o.s1, kind: 'outdoor', out: o.kind });
+    for (const o of this.outdoor) if (o.kind !== 'box') cuts.push({ s0: o.s0, s1: o.s1, kind: 'outdoor', out: o.kind, zone: o });
     cuts.sort((a, b) => a.s0 - b.s0);
     // тоннели между вырезами, станции внутри открытых участков — отдельно
     const deepAt = (s) => {
@@ -221,8 +308,16 @@ export class Route {
     this.innerStations = cuts.filter((c) => c.kind === 'station' && isInOutdoor(c));
   }
 
-  isOutdoor(s) { return this.outdoor.some((o) => s >= o.s0 && s <= o.s1); }
-  outdoorAt(s) { return this.outdoor.find((o) => s >= o.s0 && s <= o.s1) || null; }
+  // «под открытым небом»: открытые и крытые остеклённые участки, а также наземные станции
+  outdoorAt(s) {
+    const o = this.outdoor.find((z) => z.kind !== 'box' && s >= z.s0 && s <= z.s1);
+    if (o) return o;
+    const st = this.stations.find((x) => GLASS_TYPES.includes(x.style.t) && Math.abs(s - x.c) < HALL_HALF + 6);
+    return st ? { kind: 'glass', s0: st.c - HALL_HALF, s1: st.c + HALL_HALF } : null;
+  }
+  isOutdoor(s) { return !!this.outdoorAt(s); }
+  // поправка рельефа: участок с реальным окружением, внутри которого лежит точка
+  osmZoneAt(s) { return this.polyZones.find((z) => s >= z.s0 - 600 && s <= z.s1 + 600) || null; }
 
   // Кадр трассы: положение и оси в точке s
   frameAt(s, out = {}) {
@@ -257,7 +352,9 @@ export class Route {
   speedLimit(s) {
     const pc = this._piece(s + 60);
     let lim = 80;
-    const R = Math.abs(pc.k) > 1e-9 ? 1 / Math.abs(pc.k) : Infinity;
+    let kk = pc.k;
+    if (pc.poly) { const i = clamp(Math.floor(s + 60 - pc.s0), 0, pc.poly.ks.length - 1); kk = pc.poly.ks[i]; }
+    const R = Math.abs(kk) > 1e-9 ? 1 / Math.abs(kk) : Infinity;
     if (R < 700) lim = 60; else if (R < 1000) lim = 70;
     const last = this.stations[this.stations.length - 1];
     if (s > last.stop - 320) lim = Math.min(lim, 60);

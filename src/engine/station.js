@@ -6,6 +6,7 @@ import { wallTexture, floorTexture, ceilingTexture, columnTexture, pylonTexture,
 import { sharedMats, TUBE_R, TUBE_CY, BED_Y, BOX_W, BOX_TOP } from './tunnel.js';
 import { mergeGeoms, boxGeom, cylGeom, shade, mulberry32, hashStr, makeCanvas, canvasTex } from './util.js';
 import { HALL_HALF, STOP_OFFSET } from './route.js';
+import { GROUND_Y } from './osm.js';
 import { HQ, HQ_BUILDERS } from './hq.js';
 
 export const EDGE_X = -1.48;
@@ -93,7 +94,7 @@ function endWall(z, x0, x1, y0, y1, holes, deep, facing, rects = []) {
   return g;
 }
 
-function straightTrack(grp, x, z0, z1) {
+function straightTrack(grp, x, z0, z1, third = 0) {
   const m = sharedMats();
   const L = z1 - z0, zc = (z0 + z1) / 2;
   const rails = [];
@@ -110,7 +111,7 @@ function straightTrack(grp, x, z0, z1) {
   for (let i = 0; i < n; i++) { mm.makeTranslation(x, -0.22, z0 + 0.4 + i * 0.75); sl.setMatrixAt(i, mm); }
   grp.add(sl);
   // контактный рельс — со стороны стены
-  const sgn = x < -5 ? -1 : 1;
+  const sgn = third || (x < -5 ? -1 : 1);
   grp.add(new THREE.Mesh(boxGeom(0.1, 0.11, L, x + sgn * 1.52, 0.115, zc), m.third));
   grp.add(new THREE.Mesh(boxGeom(0.32, 0.03, L, x + sgn * 1.56, 0.27, zc), m.cover));
 }
@@ -210,6 +211,7 @@ function nameBoards(grp, style, x, facing, y, zs, scale = 1) {
 }
 
 export function buildStation(route, st, line) {
+  if (st.style.t === 'side') return buildSideStation(route, st, line);
   const style = st.style;
   const grp = new THREE.Group();
   grp.name = 'station:' + st.name;
@@ -557,6 +559,7 @@ export function buildStation(route, st, line) {
   info.colRows = colRows;
   info.W = W;
   if (!hq) info.ceilY = yC;
+  if (t === 'bridge') info.camY = 5.1; // камера «вид снаружи» — под перекрытием моста
 
   grp.applyMatrix4(route.matrixAt(st.c, new THREE.Matrix4(), true));
   grp.updateMatrixWorld(true);
@@ -728,4 +731,188 @@ function buildShed(grp, style, xr, xl, yC, t) {
     const nm = new THREE.MeshBasicMaterial({ map: tex });
     grp.add(new THREE.Mesh(mergeGeoms([-40, 0, 40].flatMap((z) => signPair(0.6 * tex.userData.aspect, 0.6, xm, 4.2, z))), nm));
   }
+}
+
+// ---------- Наземная станция с боковыми платформами (Технопарк) ----------
+// Строится в «зеркальной» локальной системе: наша платформа слева (x < EDGE_X), как у островных
+// станций, встречный путь — справа (x = +S); затем группа отражается по X, и в мире платформа
+// оказывается справа по ходу, а встречный путь — слева. Тексты на табличках отражены заранее.
+const SIDE_W = 6.0;
+let SIDE_TEX = null;
+function sideTextures() {
+  if (SIDE_TEX) return SIDE_TEX;
+  // вертикальный сайдинг цвета металлик
+  const c = makeCanvas(256, 256), x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 32, 0);
+  g.addColorStop(0, '#9da3a8'); g.addColorStop(0.45, '#c9ced2'); g.addColorStop(0.55, '#b7bcc0'); g.addColorStop(1, '#8e9499');
+  for (let i = 0; i < 256; i += 32) { x.save(); x.translate(i, 0); x.fillStyle = g; x.fillRect(0, 0, 32, 256); x.restore(); }
+  x.fillStyle = 'rgba(0,0,0,0.25)'; for (let i = 0; i < 256; i += 32) x.fillRect(i, 0, 2, 256);
+  const siding = canvasTex(c, { aniso: 8 }); siding.userData.shared = true;
+  // решётчатый подвесной потолок
+  const c2 = makeCanvas(256, 256), y = c2.getContext('2d');
+  y.fillStyle = '#5d6166'; y.fillRect(0, 0, 256, 256);
+  y.strokeStyle = '#a9adb1'; y.lineWidth = 5;
+  for (let i = 0; i <= 256; i += 32) { y.beginPath(); y.moveTo(i, 0); y.lineTo(i, 256); y.moveTo(0, i); y.lineTo(256, i); y.stroke(); }
+  const grate = canvasTex(c2, { aniso: 8 }); grate.userData.shared = true;
+  SIDE_TEX = { siding, grate };
+  return SIDE_TEX;
+}
+function flipU(g) { const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i)); return g; }
+
+function buildSideStation(route, st, line) {
+  const style = st.style;
+  const grp = new THREE.Group();
+  grp.name = 'station:' + st.name;
+  const zone = route.outdoorAt(st.c);
+  const S = zone && zone.oppX ? -zone.oppX : 4.6; // междупутье
+  const info = { spots: [], exits: [], lights: [], signal: null, clock: null, oppX: S, side: 1, hq: false };
+  const T = sideTextures();
+  const xP0 = EDGE_X - SIDE_W, xP1 = EDGE_X; // наша платформа
+  const xQ0 = S + 1.48, xQ1 = S + 1.48 + SIDE_W; // встречная
+  const xW0 = xP0 - 0.15, xW1 = xQ1 + 0.15;
+  const ceilY = 6.0, roofY = 9.2, glassY = PLAT_Y + 3.0;
+  const GY = GROUND_Y;
+  const floorMat = mat(floorTexture(style), 0.45);
+  const siding = new THREE.MeshStandardMaterial({ map: T.siding, roughness: 0.35, metalness: 0.55, side: THREE.DoubleSide });
+  const grate = new THREE.MeshStandardMaterial({ map: T.grate, roughness: 0.7, metalness: 0.3, side: THREE.DoubleSide });
+  const purple = new THREE.MeshStandardMaterial({ color: style.c2 || '#7b3fa3', roughness: 0.15, metalness: 0.2, emissive: new THREE.Color(style.c2 || '#7b3fa3').multiplyScalar(0.25), side: THREE.DoubleSide });
+  const glass = new THREE.MeshLambertMaterial({ color: 0xbcd0d8, transparent: true, opacity: 0.25, emissive: 0x1c2628, side: THREE.DoubleSide, depthWrite: false });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x8c9196, roughness: 0.4, metalness: 0.6 });
+  const conc = new THREE.MeshLambertMaterial({ map: concreteTexture('#9a968e') });
+  const edgeMat = new THREE.MeshLambertMaterial({ color: 0xd8d6cf, emissive: 0x3a3a38 });
+  // пути и балласт между платформами
+  straightTrack(grp, 0, -HZ, HZ, 1);
+  straightTrack(grp, S, -HZ, HZ, -1);
+  const m = sharedMats();
+  grp.add(new THREE.Mesh(planeY(-0.33, xP1, xQ0, -HZ, HZ, true, 2, 2), new THREE.MeshLambertMaterial({ color: 0x5f5a52 })));
+  // платформы: плита на сплошном основании от уровня земли
+  grp.add(new THREE.Mesh(mergeGeoms([planeY(PLAT_Y, xP0, xP1, -PL, PL), planeY(PLAT_Y, xQ0, xQ1, -PL, PL)]), floorMat));
+  grp.add(new THREE.Mesh(mergeGeoms([
+    wallX(xP1, GY, PLAT_Y, -PL, PL, 1), wallX(xQ0, GY, PLAT_Y, -PL, PL, -1),
+    endWallBox(xP0, xP1, GY, PLAT_Y, -PL), endWallBox(xP0, xP1, GY, PLAT_Y, PL),
+    endWallBox(xQ0, xQ1, GY, PLAT_Y, -PL), endWallBox(xQ0, xQ1, GY, PLAT_Y, PL),
+  ]), conc));
+  grp.add(new THREE.Mesh(mergeGeoms([planeY(PLAT_Y + 0.003, xP1 - 0.35, xP1, -PL, PL, true, 1, 1), planeY(PLAT_Y + 0.003, xQ0, xQ0 + 0.35, -PL, PL, true, 1, 1)]), edgeMat));
+  grp.add(new THREE.Mesh(mergeGeoms([planeY(PLAT_Y + 0.005, xP1 - 0.95, xP1 - 0.6, -PL, PL, true, 1, 1), planeY(PLAT_Y + 0.005, xQ0 + 0.6, xQ0 + 0.95, -PL, PL, true, 1, 1)]), new THREE.MeshLambertMaterial({ color: 0xe8c22a, emissive: 0x3a3008 })));
+  // наружные стены: сайдинг снизу, остекление сверху
+  grp.add(new THREE.Mesh(mergeGeoms([
+    wallX(xW0, GY, glassY, -HZ, HZ, 1, 3), wallX(xW1, GY, glassY, -HZ, HZ, -1, 3),
+  ]), siding));
+  grp.add(new THREE.Mesh(mergeGeoms([wallX(xW0, glassY, ceilY + 0.6, -HZ, HZ, 1), wallX(xW1, glassY, ceilY + 0.6, -HZ, HZ, -1)]), glass));
+  const mull = [];
+  for (let z = -HZ; z <= HZ; z += 3) mull.push(boxGeom(0.1, ceilY + 0.6 - glassY, 0.1, xW0, (glassY + ceilY + 0.6) / 2, z), boxGeom(0.1, ceilY + 0.6 - glassY, 0.1, xW1, (glassY + ceilY + 0.6) / 2, z));
+  mull.push(boxGeom(0.14, 0.14, 2 * HZ, xW0, glassY, 0), boxGeom(0.14, 0.14, 2 * HZ, xW1, glassY, 0));
+  grp.add(new THREE.Mesh(mergeGeoms(mull), steel));
+  // колонны в сайдинге
+  const cols = [], cz = [];
+  for (let z = -72; z <= 72; z += 9) cz.push(z);
+  for (const z of cz) for (const x of [xP0 + 1.3, xQ1 - 1.3]) cols.push(boxGeom(0.55, ceilY - PLAT_Y, 0.55, x, (ceilY + PLAT_Y) / 2, z));
+  grp.add(new THREE.Mesh(mergeGeoms(cols), siding));
+  // подвесной потолок из решёток с фиолетовыми вставками у каждой второй колонны; проём над лестницей
+  const ceil = [];
+  const stairX0 = xP0 + 0.3, stairX1 = xP0 + 2.9, stairZ0 = 3.5, stairZ1 = 12.5;
+  for (const [a, b] of [[xP0, xP1 + 0.4], [xQ0 - 0.4, xQ1]]) {
+    ceil.push(planeY(ceilY, a, b, -HZ, -3.5, false, 3, 3), planeY(ceilY, a, b, stairZ1, HZ, false, 3, 3));
+  }
+  ceil.push(planeY(ceilY, stairX1, xP1 + 0.4, 3.5, stairZ1, false, 3, 3), planeY(ceilY, xQ0 - 0.4, xQ1 - 2.9, 3.5, stairZ1, false, 3, 3), planeY(ceilY, xP0, stairX0, 3.5, stairZ1, false, 3, 3), planeY(ceilY, xQ1 - 0.3, xQ1, 3.5, stairZ1, false, 3, 3));
+  grp.add(new THREE.Mesh(mergeGeoms(ceil), grate));
+  const ins = [];
+  cz.forEach((z, i) => { if (i % 2 === 0 && Math.abs(z) > 14) for (const x of [xP0 + 2.6, xQ1 - 2.6]) ins.push(boxGeom(4.2, 0.18, 4.2, x, ceilY - 0.1, z)); });
+  for (const x of [(xP0 + xP1) / 2, (xQ0 + xQ1) / 2]) ins.push(boxGeom(SIDE_W - 0.3, 0.22, 2.2, x, ceilY - 0.12, -5.0), boxGeom(SIDE_W - 0.3, 0.22, 2.2, x, ceilY - 0.12, 14.2));
+  grp.add(new THREE.Mesh(mergeGeoms(ins), purple));
+  // светильники-полосы в потолке
+  const lamps = [];
+  for (let z = -78; z <= 78; z += 6) for (const x of [xP1 - 1.6, xQ0 + 1.6]) if (!(z > -4 && z < 13)) lamps.push(boxGeom(0.18, 0.04, 2.6, x, ceilY - 0.03, z));
+  grp.add(new THREE.Mesh(mergeGeoms(lamps), new THREE.MeshBasicMaterial({ color: 0xfff6e6 })));
+  // крыша: над платформами — глухая, над путями — стеклянная
+  grp.add(new THREE.Mesh(mergeGeoms([planeY(ceilY + 0.7, xW0, xP1 + 0.4, -HZ, HZ, true, 4, 4), planeY(ceilY + 0.7, xQ0 - 0.4, xW1, -HZ, HZ, true, 4, 4)]), new THREE.MeshLambertMaterial({ color: 0x8d9195, side: THREE.DoubleSide })));
+  grp.add(new THREE.Mesh(mergeGeoms([wallX(xP1 + 0.4, ceilY, roofY, -HZ, HZ, 1), wallX(xQ0 - 0.4, ceilY, roofY, -HZ, HZ, -1)]), siding));
+  grp.add(new THREE.Mesh(planeY(roofY, xP1 + 0.4, xQ0 - 0.4, -HZ, HZ, false), glass));
+  const rf = [];
+  for (let z = -HZ; z <= HZ; z += 4) rf.push(boxGeom(xQ0 - xP1 - 0.8, 0.22, 0.14, (xP1 + xQ0) / 2, roofY - 0.11, z));
+  rf.push(boxGeom(0.16, 0.22, 2 * HZ, (xP1 + xQ0) / 2, roofY - 0.11, 0));
+  grp.add(new THREE.Mesh(mergeGeoms(rf), steel));
+  // фронтоны над путями в торцах павильона
+  grp.add(new THREE.Mesh(mergeGeoms([wallZ(xP1 + 0.4, xQ0 - 0.4, 5.2, roofY, -HZ), wallZ(xP1 + 0.4, xQ0 - 0.4, 5.2, roofY, HZ), wallZ(xW0, xP1 + 0.4, ceilY, ceilY + 0.7, -HZ), wallZ(xW0, xP1 + 0.4, ceilY, ceilY + 0.7, HZ), wallZ(xQ0 - 0.4, xW1, ceilY, ceilY + 0.7, -HZ), wallZ(xQ0 - 0.4, xW1, ceilY, ceilY + 0.7, HZ)]), siding));
+  // торцы платформ: остеклённые стены
+  grp.add(new THREE.Mesh(mergeGeoms([wallZ(xW0, xP1 - 0.2, PLAT_Y, ceilY, -PL - 0.2), wallZ(xW0, xP1 - 0.2, PLAT_Y, ceilY, PL + 0.2), wallZ(xQ0 + 0.2, xW1, PLAT_Y, ceilY, -PL - 0.2), wallZ(xQ0 + 0.2, xW1, PLAT_Y, ceilY, PL + 0.2)]), glass));
+  // пешеходный мост между платформами и лестницы на него
+  const deckY = 6.0, bz = 3.5;
+  grp.add(new THREE.Mesh(mergeGeoms([planeY(deckY, xP0, xQ1, -bz, bz, true, 2, 2), planeY(deckY - 0.5, xP0, xQ1, -bz, bz, false, 2, 2)]), floorMat));
+  grp.add(new THREE.Mesh(mergeGeoms([wallZ(xP1 + 0.4, xQ0 - 0.4, deckY - 0.5, deckY, -bz), wallZ(xP1 + 0.4, xQ0 - 0.4, deckY - 0.5, deckY, bz)]), steel));
+  grp.add(new THREE.Mesh(mergeGeoms([wallZ(xP1 + 0.4, xQ0 - 0.4, deckY, deckY + 2.6, -bz), wallZ(xP1 + 0.4, xQ0 - 0.4, deckY, deckY + 2.6, bz)]), glass));
+  grp.add(new THREE.Mesh(planeY(deckY + 2.7, xP1 + 0.4, xQ0 - 0.4, -bz, bz, false), siding));
+  const stairs = [];
+  const steps = 18;
+  for (const [x0, x1] of [[stairX0, stairX1], [xQ1 - 2.9, xQ1 - 0.3]]) {
+    for (let i = 0; i < steps; i++) {
+      const y = PLAT_Y + (deckY - PLAT_Y) * (i + 1) / steps;
+      const z = stairZ1 - (stairZ1 - stairZ0) * (i + 0.5) / steps;
+      stairs.push(boxGeom(x1 - x0, (deckY - PLAT_Y) / steps, (stairZ1 - stairZ0) / steps, (x0 + x1) / 2, y - (deckY - PLAT_Y) / steps / 2, z));
+    }
+  }
+  grp.add(new THREE.Mesh(mergeGeoms(stairs), conc));
+  const rails = [];
+  for (const x of [stairX1, xQ1 - 2.9]) {
+    const L = Math.hypot(stairZ1 - stairZ0, deckY - PLAT_Y);
+    const g = boxGeom(0.06, 0.06, L, 0, 0, 0);
+    g.rotateX(Math.atan2(deckY - PLAT_Y, stairZ1 - stairZ0));
+    g.translate(x, (PLAT_Y + deckY) / 2 + 1.0, (stairZ0 + stairZ1) / 2);
+    rails.push(g, boxGeom(0.04, (deckY - PLAT_Y) / 2 + 1, 0.04, x, PLAT_Y + ((deckY - PLAT_Y) / 2 + 1) / 2, stairZ1 - 0.2));
+  }
+  grp.add(new THREE.Mesh(mergeGeoms(rails), steel));
+  info.stairs = [{ x0: stairX0, x1: stairX1, zBottom: stairZ1, zTop: stairZ0, yBottom: PLAT_Y, yTop: deckY, zWall: bz, o: -1 }];
+  info.exits.push({ x: (stairX0 + stairX1) / 2, z: 1.0, y: deckY });
+  // названия станции на наружных стенах (текст отражён заранее)
+  const tex = nameTexture(style.n, 'plate');
+  const nm = new THREE.MeshBasicMaterial({ map: tex });
+  const names = [];
+  for (const z of [-60, -32, 32, 60]) {
+    const a = new THREE.PlaneGeometry(0.7 * tex.userData.aspect, 0.7); a.rotateY(Math.PI / 2); a.translate(xW0 + 0.03, 2.6, z); names.push(flipU(a));
+    const b = new THREE.PlaneGeometry(0.7 * tex.userData.aspect, 0.7); b.rotateY(-Math.PI / 2); b.translate(xW1 - 0.03, 2.6, z); names.push(flipU(b));
+  }
+  grp.add(new THREE.Mesh(mergeGeoms(names), nm));
+  // подвесные указатели
+  const sTex = signTexture([st.name], { bg: '#1f2733', w: 1024, h: 128, line });
+  const sg = [];
+  for (let z = -PL + 20; z < PL; z += 40) for (const x of [xP1 - 0.8, xQ0 + 0.8]) sg.push(...signPair(3.6, 0.45, x, ceilY - 0.6, z).map(flipU));
+  grp.add(new THREE.Mesh(mergeGeoms(sg), new THREE.MeshBasicMaterial({ map: sTex })));
+  // знак «СТОП» и светофор — справа по ходу (в зеркальной системе — слева)
+  const stopTex = signTexture(['СТОП'], { bg: '#ffffff', fg: '#c81e1e', w: 256, h: 128 });
+  const stop = new THREE.Mesh(flipU(new THREE.PlaneGeometry(0.6, 0.3)), new THREE.MeshBasicMaterial({ map: stopTex }));
+  stop.rotation.y = Math.PI / 2;
+  stop.position.set(EDGE_X - 0.4, 2.6, -STOP_OFFSET - 1.5);
+  grp.add(stop);
+  const sig = new THREE.Group();
+  sig.add(new THREE.Mesh(boxGeom(0.3, 0.75, 0.2, 0, 0, 0), m.sigPost));
+  const red = new THREE.Mesh(new THREE.CircleGeometry(0.09, 16), m.red);
+  const green = new THREE.Mesh(new THREE.CircleGeometry(0.09, 16), m.off);
+  red.position.set(0, 0.17, -0.105); green.position.set(0, -0.17, -0.105);
+  red.rotation.y = Math.PI; green.rotation.y = Math.PI;
+  sig.add(red, green);
+  sig.add(new THREE.Mesh(boxGeom(0.1, 2.3, 0.1, 0, -1.5, 0), m.sigPost));
+  sig.position.set(-2.1, 2.6, -HZ - 2);
+  grp.add(sig);
+  info.signal = { set(ok) { red.material = ok ? m.off : m.red; green.material = ok ? m.green : m.off; } };
+  const clk = makeClock();
+  clk.mesh.position.set(0, 5.4, -HZ + 0.05);
+  clk.mesh.scale.x = -1;
+  grp.add(clk.mesh);
+  info.clock = clk;
+  // места ожидания, свет, параметры для камеры
+  for (let z = -PL + 10; z < PL - 10; z += 9) info.spots.push({ x: xP0 + 2.6, z: z + 4.5 });
+  for (let z = -PL + 15; z < PL; z += 33) info.lights.push(new THREE.Vector3((xP0 + xP1) / 2, ceilY - 0.6, z), new THREE.Vector3((xQ0 + xQ1) / 2, ceilY - 0.6, z + 12));
+  info.platform = { x0: xP0 + 0.6, x1: xP1 - 0.5, z0: -PL + 3, z1: PL - 3, y: PLAT_Y };
+  info.noCam = [];
+  info.camX = [xP0 + 0.5, S - 1.6];
+  info.camY = ceilY - 0.4;
+  info.colRows = [xP0 + 1.3];
+  info.W = SIDE_W;
+  info.ceilY = ceilY;
+  grp.scale.x = -1;
+  grp.updateMatrix();
+  grp.matrix.premultiply(route.matrixAt(st.c, new THREE.Matrix4(), true));
+  grp.matrix.decompose(grp.position, grp.quaternion, grp.scale);
+  grp.updateMatrixWorld(true);
+  return { group: grp, info, st };
 }

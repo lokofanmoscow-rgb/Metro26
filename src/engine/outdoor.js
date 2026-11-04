@@ -1,10 +1,11 @@
-// Открытые участки: метромост через Москву-реку и наземный участок на юге Сокольнической линии.
+// Открытые участки: насыпи, выемки с подпорными стенками, метромосты, порталы тоннелей, небо.
 import * as THREE from 'three';
 import { sweep, instancesAlong, bakedMaterial } from './geom.js';
 import { buildTrack, sharedMats, TUBE_R, TUBE_CY, BED_Y } from './tunnel.js';
 import { grassTexture, ballastTexture, buildingTexture, concreteTexture } from './textures.js';
 import { mergeGeoms, boxGeom, cylGeom, mulberry32, hashStr } from './util.js';
-import { HALL_HALF } from './route.js';
+import { HALL_HALF, BRIDGE_RISE } from './route.js';
+import { buildOsmEnv, corridorIndex, GROUND_Y } from './osm.js';
 
 const OPP_X = -12.96;
 
@@ -64,31 +65,87 @@ function buildings(route, s0, s1, rng, step) {
 }
 
 // Портал тоннеля: стенка с проёмом и насыпь/склон над тоннелем
-export function buildPortal(route, s, facingForward, kind) {
+export function buildPortal(route, s, facingForward, cut) {
+  const Z = cut.zone || {};
+  if (Z.osm && Z.kind === 'open') return osmPortal(route, s, facingForward, Z.oppX);
+  const kind = cut.out, ox = Z.oppX ?? OPP_X;
   const grp = new THREE.Group();
   const sh = new THREE.Shape();
   const W = 40;
-  sh.moveTo(OPP_X - W / 2, -6); sh.lineTo(W / 2, -6); sh.lineTo(W / 2, 9); sh.lineTo(OPP_X - W / 2, 9); sh.lineTo(OPP_X - W / 2, -6);
-  for (const hx of [0, OPP_X]) { const p = new THREE.Path(); p.absarc(hx, TUBE_CY, TUBE_R, 0, Math.PI * 2, true); sh.holes.push(p); }
+  sh.moveTo(ox - W / 2, -14); sh.lineTo(W / 2, -14); sh.lineTo(W / 2, 9); sh.lineTo(ox - W / 2, 9); sh.lineTo(ox - W / 2, -14);
+  for (const hx of [0, ox]) { const p = new THREE.Path(); p.absarc(hx, TUBE_CY, TUBE_R, 0, Math.PI * 2, true); sh.holes.push(p); }
   const g = new THREE.ShapeGeometry(sh, 20);
   const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 4, uv.getY(i) / 4);
   const m = new THREE.MeshLambertMaterial({ map: concreteTexture('#8a857c'), side: THREE.DoubleSide });
-  const wall = new THREE.Mesh(g, m);
-  grp.add(wall);
-  // склон
+  grp.add(new THREE.Mesh(g, m));
+  // склон над тоннелем
   const dir = facingForward ? -1 : 1; // склон уходит в сторону тоннеля
-  const hill = new THREE.Mesh(boxGeom(W + 30, 12, 60, OPP_X / 2, 3, dir * 30.1), new THREE.MeshLambertMaterial({ map: grassTexture(), color: kind === 'bridge' ? 0x6f8f55 : 0x7f9a5a }));
+  const hill = new THREE.Mesh(boxGeom(W + 30, 23, 60, ox / 2, -2.5, dir * 30.1), new THREE.MeshLambertMaterial({ map: grassTexture(), color: kind === 'bridge' ? 0x6f8f55 : 0x7f9a5a }));
   hill.material.map.repeat.set(8, 8);
   grp.add(hill);
-  // короткая труба тоннеля за порталом
-  const tube = new THREE.Mesh(new THREE.CylinderGeometry(TUBE_R, TUBE_R, 8, 24, 1, true).rotateX(Math.PI / 2).translate(0, TUBE_CY, dir * 4), new THREE.MeshLambertMaterial({ color: 0x3a3733, side: THREE.BackSide }));
-  grp.add(tube);
+  grp.applyMatrix4(route.matrixAt(s, new THREE.Matrix4(), true));
+  return grp;
+}
+
+// Портал двухпутного тоннеля в торце выемки (путь ниже уровня земли)
+function osmPortal(route, s, facingForward, ox) {
+  const grp = new THREE.Group();
+  const gy = GROUND_Y - route.y(s); // земля над порталом (локально)
+  const xr = 3.0, xl = ox - 3.0, top = Math.min(4.9, gy - 0.4);
+  const X0 = ox - 3.6 - 14, X1 = 3.6 + 14, Y0 = -1.0, Y1 = gy + 0.9;
+  const sh = new THREE.Shape();
+  sh.moveTo(X0, Y0); sh.lineTo(X1, Y0); sh.lineTo(X1, Y1); sh.lineTo(X0, Y1); sh.lineTo(X0, Y0);
+  const h = new THREE.Path(); h.moveTo(xl, -0.7); h.lineTo(xr, -0.7); h.lineTo(xr, top); h.lineTo(xl, top); h.lineTo(xl, -0.7); sh.holes.push(h);
+  const g = new THREE.ShapeGeometry(sh, 1);
+  const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 3, uv.getY(i) / 3);
+  const conc = new THREE.MeshLambertMaterial({ map: concreteTexture('#9c978d'), side: THREE.DoubleSide });
+  grp.add(new THREE.Mesh(g, conc));
+  // карниз портала
+  grp.add(new THREE.Mesh(boxGeom(X1 - X0, 0.5, 1.2, (X0 + X1) / 2, Y1 - 0.25, 0), conc));
+  // устье: стены и свод без торцов, в глубине — стенка с проёмом под наш тоннель
+  const dir = facingForward ? -1 : 1;
+  const D = 16;
+  const dark = new THREE.MeshLambertMaterial({ color: 0x3a3833, side: THREE.DoubleSide });
+  const walls = [
+    new THREE.PlaneGeometry(D, top + 0.7).rotateY(Math.PI / 2).translate(xr, (top - 0.7) / 2, dir * D / 2),
+    new THREE.PlaneGeometry(D, top + 0.7).rotateY(Math.PI / 2).translate(xl, (top - 0.7) / 2, dir * D / 2),
+    new THREE.PlaneGeometry(xr - xl, D).rotateX(Math.PI / 2).translate((xl + xr) / 2, top, dir * D / 2),
+    new THREE.PlaneGeometry(xr - xl, D).rotateX(Math.PI / 2).translate((xl + xr) / 2, -0.66, dir * D / 2),
+  ];
+  grp.add(new THREE.Mesh(mergeGeoms(walls), dark));
+  const deep = route.deepAt ? route.deepAt(s + dir * -30) : true;
+  const bs = new THREE.Shape();
+  bs.moveTo(xl, -0.7); bs.lineTo(xr, -0.7); bs.lineTo(xr, top); bs.lineTo(xl, top); bs.lineTo(xl, -0.7);
+  const hole = new THREE.Path();
+  if (deep) hole.absarc(0, TUBE_CY, TUBE_R - 0.02, 0, Math.PI * 2, true);
+  else { hole.moveTo(-2.06, BED_Y - 0.2); hole.lineTo(2.06, BED_Y - 0.2); hole.lineTo(2.06, 4.23); hole.lineTo(-2.06, 4.23); hole.lineTo(-2.06, BED_Y - 0.2); }
+  bs.holes.push(hole);
+  const back = new THREE.Mesh(new THREE.ShapeGeometry(bs, 24), dark);
+  back.position.z = dir * D;
+  grp.add(back);
   grp.applyMatrix4(route.matrixAt(s, new THREE.Matrix4(), true));
   return grp;
 }
 
 // Окружение всего открытого участка (строится один раз на зону)
 export function buildOutdoorEnv(route, zone) {
+  const Z = zone.zone || {};
+  if (Z.osm && Z.envMatrix) {
+    // реальное окружение; здания и деревья у самой трассы убираем (их заменяют наши сооружения)
+    const index = corridorIndex(Z.osm);
+    const L = index.L;
+    // s оси в данных OSM → s трассы
+    const toRoute = (sd) => Z.s0 + (Z.rev ? L - sd : sd);
+    const open = Z.kind === 'open';
+    const corridor = {
+      index,
+      halfW: 3.6 - (Z.oppX ?? OPP_X) / 2,
+      clearB: open ? 16 : 22,
+      clearT: open ? 9 : 14,
+      cutAt: (sd) => open && route.y(toRoute(sd)) < GROUND_Y + 0.75,
+    };
+    return buildOsmEnv(Z.osm, Z.envMatrix, { corridor });
+  }
   const grp = new THREE.Group();
   const rng = mulberry32(hashStr(route.line.id + zone.s0));
   const mid = (zone.s0 + zone.s1) / 2;
@@ -181,6 +238,8 @@ export function buildOutdoorEnv(route, zone) {
 export function buildOutdoorChunk(route, s0, s1, zone) {
   const grp = new THREE.Group();
   const rng = mulberry32(hashStr(route.line.id + ':' + Math.round(s0)));
+  const Z = zone.zone || {};
+  const OX = Z.oppX ?? OPP_X;
   const halls = route.innerStations.map((c) => [c.s0, c.s1]);
   // части без станций (путь и галереи строит станция сама)
   const parts = [];
@@ -192,41 +251,168 @@ export function buildOutdoorChunk(route, s0, s1, zone) {
   }
   if (a < s1) parts.push([a, s1]);
   const bridge = zone.out === 'bridge';
+  if (Z.osm && Z.kind === 'open') {
+    // реальный открытый участок: насыпь/выемка или метромост — по данным OSM
+    const br = (Z.brEff || []).map(([x, y]) => [Z.s0 + x, Z.s0 + y]);
+    for (const [p0, p1] of parts) {
+      if (p1 - p0 < 0.5) continue;
+      const cuts = [p0];
+      for (const [x, y] of br) { if (x > p0 && x < p1) cuts.push(x); if (y > p0 && y < p1) cuts.push(y); }
+      cuts.push(p1); cuts.sort((u, v) => u - v);
+      for (let i = 0; i < cuts.length - 1; i++) {
+        const u = cuts[i], v = cuts[i + 1];
+        if (v - u < 0.5) continue;
+        const onBridge = br.some(([x, y]) => (u + v) / 2 > x && (u + v) / 2 < y);
+        grp.add(buildTrack(route, u, v, { bed: false }));
+        grp.add(oppTrack(route, u, v, OX));
+        grp.add(onBridge ? openBridge(route, u, v, OX) : embankment(route, u, v, OX));
+      }
+    }
+    return grp;
+  }
   for (const [p0, p1] of parts) {
     if (p1 - p0 < 0.5) continue;
     grp.add(buildTrack(route, p0, p1, { bed: !bridge }));
-    grp.add(oppTrack(route, p0, p1));
+    grp.add(oppTrack(route, p0, p1, OX));
     if (bridge) {
-      grp.add(bridgeGallery(route, p0, p1));
+      grp.add(bridgeGallery(route, p0, p1, OX));
     } else {
-      const bal = new THREE.MeshLambertMaterial({ map: ballastTexture() });
-      grp.add(new THREE.Mesh(sweep(route, p0, p1, [{ x: OPP_X - 2.6, y: -0.62 }, { x: OPP_X - 1.8, y: -0.3 }, { x: 1.8, y: -0.3 }, { x: 2.6, y: -0.62 }], { step: 4, uScale: 2, vScale: 2 }), bal));
+      const bal = new THREE.MeshLambertMaterial({ map: ballastTexture(), side: THREE.DoubleSide });
+      grp.add(new THREE.Mesh(sweep(route, p0, p1, [{ x: OX - 2.6, y: -0.62 }, { x: OX - 1.8, y: -0.3 }, { x: 1.8, y: -0.3 }, { x: 2.6, y: -0.62 }], { step: 4, uScale: 2, vScale: 2 }), bal));
     }
   }
-  if (!bridge) {
+  if (!bridge && !Z.osm) {
     const gm = new THREE.MeshLambertMaterial({ map: grassTexture() });
     gm.map.repeat.set(1, 1);
-    const prof = [{ x: OPP_X - 150, y: -1.5 }, { x: OPP_X - 30, y: -1.0 }, { x: OPP_X - 2.6, y: -0.62 }];
+    const prof = [{ x: OX - 150, y: -1.5 }, { x: OX - 30, y: -1.0 }, { x: OX - 2.6, y: -0.62 }];
     const prof2 = [{ x: 2.6, y: -0.62 }, { x: 30, y: -1.0 }, { x: 150, y: -1.5 }];
     grp.add(new THREE.Mesh(mergeGeoms([sweep(route, s0, s1, prof, { step: 5, uScale: 6, vScale: 6 }), sweep(route, s0, s1, prof2, { step: 5, uScale: 6, vScale: 6 })]), gm));
-    // ограждения и опоры освещения
-    const post = new THREE.MeshLambertMaterial({ color: 0x5a5a58 });
-    const fence = instancesAlong(route, s0, s1, 3, new THREE.BoxGeometry(0.06, 2.0, 0.06).translate(0, 1, 0), post, () => [{ x: 5.5, y: -0.8 }, { x: OPP_X - 5.5, y: -0.8 }]);
-    if (fence) grp.add(fence);
-    const net = new THREE.MeshLambertMaterial({ color: 0x8a9a8a, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
-    grp.add(new THREE.Mesh(mergeGeoms([
-      sweep(route, s0, s1, [{ x: 5.5, y: -0.8 }, { x: 5.5, y: 1.2 }], { step: 6 }),
-      sweep(route, s0, s1, [{ x: OPP_X - 5.5, y: -0.8 }, { x: OPP_X - 5.5, y: 1.2 }], { step: 6 }),
-    ]), net));
-    const poles = instancesAlong(route, s0, s1, 40, mergeGeoms([cylGeom(0.09, 0.12, 8, 6, 0, 4, 0), boxGeom(1.6, 0.1, 0.1, -0.8, 8, 0)]), post, () => [{ x: 4.2, y: -0.6 }]);
-    if (poles) grp.add(poles);
     const tr = trees(route, s0, s1, rng, 9, 45, 7);
     if (tr) grp.add(tr);
   }
   return grp;
 }
 
-function oppTrack(route, s0, s1) {
+// Лента с переменным сечением: fn(s) → массив точек [x, y] (одинаковой длины)
+function ribbon(route, s0, s1, step, fn, uScale = 2) {
+  const n = Math.max(2, Math.ceil((s1 - s0) / step) + 1);
+  const pos = [], uv = [], idx = [];
+  const f = {};
+  let m = 0;
+  for (let i = 0; i < n; i++) {
+    const s = s0 + (s1 - s0) * i / (n - 1);
+    route.frameAt(s, f);
+    const pts = fn(s);
+    m = pts.length;
+    let u = 0;
+    for (let j = 0; j < m; j++) {
+      const [x, y] = pts[j];
+      if (j) u += Math.hypot(x - pts[j - 1][0], y - pts[j - 1][1]);
+      pos.push(f.pos.x + f.right.x * x + f.up.x * y, f.pos.y + f.right.y * x + f.up.y * y, f.pos.z + f.right.z * x + f.up.z * y);
+      uv.push(u / uScale, s / uScale);
+    }
+  }
+  for (let i = 0; i < n - 1; i++) for (let j = 0; j < m - 1; j++) {
+    const a = i * m + j, b = a + 1, c = a + m, d = c + 1;
+    idx.push(a, c, b, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+
+// Насыпь (путь выше земли) или выемка с подпорными стенками (рампа к порталу)
+function embankment(route, s0, s1, OX) {
+  const grp = new THREE.Group();
+  const bal = new THREE.MeshLambertMaterial({ map: ballastTexture(), side: THREE.DoubleSide });
+  // уровень земли в локальной системе пути
+  const gy = (s) => GROUND_Y - route.y(s);
+  const H = (s) => -0.62 - gy(s); // > 0 — насыпь, < 0 — выемка
+  const xr = 2.6, xl = OX - 2.6;
+  grp.add(new THREE.Mesh(sweep(route, s0, s1, [{ x: xl, y: -0.62 }, { x: OX - 1.8, y: -0.3 }, { x: 1.8, y: -0.3 }, { x: xr, y: -0.62 }], { step: 4, uScale: 2, vScale: 2 }), bal));
+  // откосы насыпи (травяные)
+  const gm = new THREE.MeshLambertMaterial({ map: grassTexture(), color: 0x9aa880, side: THREE.DoubleSide });
+  const slope = (s) => Math.max(0, H(s)) * 1.6;
+  grp.add(new THREE.Mesh(mergeGeoms([
+    ribbon(route, s0, s1, 4, (s) => [[xr, -0.62], [xr + 0.3 + slope(s), Math.min(-0.62, gy(s))]]),
+    ribbon(route, s0, s1, 4, (s) => [[xl - 0.3 - slope(s), Math.min(-0.62, gy(s))], [xl, -0.62]]),
+  ]), gm));
+  // выемка: дно и подпорные стенки с парапетом
+  const cutH = (s) => Math.max(0, -H(s));
+  const wr = xr + 1.0, wl = xl - 1.0;
+  if ([s0, (s0 + s1) / 2, s1].some((s) => cutH(s) > 0.05)) {
+    const conc = new THREE.MeshLambertMaterial({ map: concreteTexture('#a29d93'), side: THREE.DoubleSide });
+    const top = (s) => (cutH(s) > 0.05 ? gy(s) + 0.9 : -0.62);
+    grp.add(new THREE.Mesh(mergeGeoms([
+      ribbon(route, s0, s1, 4, (s) => [[wl, -0.65], [xl, -0.64]]),
+      ribbon(route, s0, s1, 4, (s) => [[xr, -0.64], [wr, -0.65]]),
+      ribbon(route, s0, s1, 4, (s) => [[wr, -0.65], [wr, top(s)], [wr + 0.35, top(s)], [wr + 0.35, Math.min(top(s), gy(s) + 0.05)]], 3),
+      ribbon(route, s0, s1, 4, (s) => [[wl - 0.35, Math.min(top(s), gy(s) + 0.05)], [wl - 0.35, top(s)], [wl, top(s)], [wl, -0.65]], 3),
+    ]), conc));
+  }
+  // ограждение полосы отвода по бровке
+  const post = new THREE.MeshLambertMaterial({ color: 0x4a4c4a });
+  const fx = (s) => (cutH(s) > 0.05 ? wr + 1.2 : xr + 1.5 + slope(s));
+  const fy = (s) => Math.max(gy(s), -0.62);
+  const fence = instancesAlong(route, s0, s1, 3, new THREE.BoxGeometry(0.06, 2.0, 0.06).translate(0, 1, 0), post, (s) => [{ x: fx(s), y: fy(s) }, { x: OX - fx(s), y: fy(s) }]);
+  if (fence) grp.add(fence);
+  const net = new THREE.MeshLambertMaterial({ color: 0x8a9a8a, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false });
+  grp.add(new THREE.Mesh(mergeGeoms([
+    ribbon(route, s0, s1, 6, (s) => [[fx(s), fy(s)], [fx(s), fy(s) + 2]]),
+    ribbon(route, s0, s1, 6, (s) => [[OX - fx(s), fy(s)], [OX - fx(s), fy(s) + 2]]),
+  ]), net));
+  // опоры контактной сети здесь не нужны (третий рельс); столбы освещения
+  const lampM = new THREE.MeshLambertMaterial({ color: 0x6b6e70 });
+  const lamps = instancesAlong(route, s0, s1, 40, mergeGeoms([cylGeom(0.08, 0.11, 7, 6, 0, 3.5, 0), boxGeom(1.2, 0.12, 0.12, -0.6, 7, 0)]), lampM, (s) => [{ x: fx(s) - 0.4, y: fy(s) }]);
+  if (lamps) grp.add(lamps);
+  return grp;
+}
+
+// открытый метромост: плита проезжей части, коробчатые балки, перила, опоры до земли/дна
+function openBridge(route, s0, s1, OX) {
+  const grp = new THREE.Group();
+  const xr = 3.2, xl = OX - 3.2;
+  const conc = new THREE.MeshLambertMaterial({ map: concreteTexture('#9a968c'), color: 0xd8d8d8, side: THREE.DoubleSide });
+  const steel = new THREE.MeshLambertMaterial({ color: 0x5f7a86, side: THREE.DoubleSide });
+  grp.add(new THREE.Mesh(mergeGeoms([
+    sweep(route, s0, s1, [{ x: xr, y: -0.3 }, { x: xl, y: -0.3 }], { step: 4, uScale: 3, vScale: 3 }),
+    sweep(route, s0, s1, [{ x: xl, y: -0.3 }, { x: xl, y: -0.75 }, { x: xr, y: -0.75 }, { x: xr, y: -0.3 }], { step: 4, uScale: 3, vScale: 3 }),
+  ]), conc));
+  // две коробчатые балки пролётного строения
+  grp.add(new THREE.Mesh(mergeGeoms([
+    sweep(route, s0, s1, [{ x: xr - 0.6, y: -0.75 }, { x: xr - 0.6, y: -3.0 }, { x: xr - 2.4, y: -3.0 }, { x: xr - 2.4, y: -0.75 }], { step: 6, uScale: 3, vScale: 3 }),
+    sweep(route, s0, s1, [{ x: xl + 2.4, y: -0.75 }, { x: xl + 2.4, y: -3.0 }, { x: xl + 0.6, y: -3.0 }, { x: xl + 0.6, y: -0.75 }], { step: 6, uScale: 3, vScale: 3 }),
+  ]), steel));
+  // перила
+  const rail = new THREE.MeshLambertMaterial({ color: 0x3e4446, side: THREE.DoubleSide });
+  const posts = instancesAlong(route, s0, s1, 2.5, new THREE.BoxGeometry(0.07, 1.1, 0.07).translate(0, 0.25, 0), rail, () => [{ x: xr - 0.1, y: 0 }, { x: xl + 0.1, y: 0 }]);
+  if (posts) grp.add(posts);
+  grp.add(new THREE.Mesh(mergeGeoms([
+    sweep(route, s0, s1, [{ x: xr - 0.1, y: 0.8 }, { x: xr - 0.1, y: 0.86 }], { step: 6 }),
+    sweep(route, s0, s1, [{ x: xl + 0.1, y: 0.8 }, { x: xl + 0.1, y: 0.86 }], { step: 6 }),
+    sweep(route, s0, s1, [{ x: xr - 0.1, y: 0.35 }, { x: xr - 0.1, y: 0.4 }], { step: 6 }),
+    sweep(route, s0, s1, [{ x: xl + 0.1, y: 0.35 }, { x: xl + 0.1, y: 0.4 }], { step: 6 }),
+  ]), rail));
+  // опоры: от низа балок до дна (уходят в рельеф на берегу)
+  const pierM = new THREE.MeshLambertMaterial({ map: concreteTexture('#a39e94') });
+  const first = Math.ceil(s0 / 42) * 42;
+  const pg = [];
+  const f = {};
+  for (let s = first; s < s1; s += 42) {
+    route.frameAt(s, f);
+    const h = route.y(s) - (GROUND_Y - 11) - 3; // до дна реки / в грунт
+    const g = new THREE.BoxGeometry(OX * -1 + 2, h, 2.4);
+    g.translate(OX / 2, -3 - h / 2, 0);
+    g.applyMatrix4(route.matrixAt(s, new THREE.Matrix4(), true));
+    pg.push(g);
+  }
+  if (pg.length) grp.add(new THREE.Mesh(mergeGeoms(pg), pierM));
+  return grp;
+}
+
+function oppTrack(route, s0, s1, OPP_X = -12.96) {
   // встречный путь — смещён на OPP_X
   const m = sharedMats();
   const g2 = new THREE.Group();
@@ -237,7 +423,7 @@ function oppTrack(route, s0, s1) {
   return g2;
 }
 
-function bridgeGallery(route, s0, s1) {
+function bridgeGallery(route, s0, s1, OPP_X = -12.96) {
   const grp = new THREE.Group();
   const xr = 2.9, xl = OPP_X - 2.9;
   const conc = bakedMaterial({ map: concreteTexture('#9a968c'), color: 0xdddddd });

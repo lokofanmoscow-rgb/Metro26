@@ -7,7 +7,7 @@
 //  t   — тип: col (колонная мелкого заложения), pylon (пилонная глубокого заложения),
 //        cold (колонная трёхсводчатая глубокого заложения), vault (односводчатая),
 //        span (однопролётная с плоским потолком), ground (наземная крытая),
-//        bridge (на метромосту)
+//        bridge (на метромосту), side (наземная с боковыми платформами)
 //  deep — глубокое заложение (в перегоне круглый тоннель из тюбингов)
 //  cs  — шаг колонн/пилонов, м
 //  csh — форма колонн: sq, rnd, fac (гранёные), flare (раскрывающаяся капитель), tree, frame
@@ -51,16 +51,54 @@ export const LINES = {
       { n: 'Тропарёво', sid: 's196', d: 2560, y: 2014, dp: 12, t: 'vault', c: '#c4c8cc', csh: 'tree', w: '#dcdcd8', wp: 'panel', wl: '#5e6266', wa: '#b0b4b8', f: ['#9a9a98', '#6a6a68'], fp: 'stripe', ce: '#e8e8e8', cp: 'flat', l: 'led', nm: 'plate', info: 'односводчатая; по оси зала — металлические «деревья» в память о Тропарёвском лесопарке' },
       { n: 'Румянцево', sid: 's199', d: 1720, y: 2016, dp: 12, t: 'col', cs: 6, csh: 'frame', c: '#f2f2f2', c2: '#151515', w: '#f2f2f0', wp: 'mondrian', wl: '#151515', wa: '#d42a2a', f: ['#cfcfcc', '#3a3a3a'], fp: 'stripe', ce: '#f0f0ee', cp: 'flat', l: 'led', nm: 'plate', info: 'путевые стены в духе картин Мондриана, чёрно-белые колонны, красные скамейки' },
       { n: 'Саларьево', sid: 's200', d: 2800, y: 2016, dp: 12, t: 'col', cs: 6, csh: 'frame', c: '#d6d0c6', c2: '#6f6a62', w: '#b0643a', wp: 'squares', wl: '#5a3a26', wa: '#c98a5c', f: ['#c9c2b6', '#8c857a'], fp: 'check', ce: '#d7d3cc', cp: 'grid', l: 'led', nm: 'plate', info: 'каркасная станция: квадраты на стенах, потолке и полу; оранжево-коричневые панели' },
-      { n: 'Филатов Луг', sid: 's260', d: 3210, y: 2019, dp: 0, t: 'ground', c: '#f4f4f2', c2: '#f2c53d', w: '#bcd8e0', wp: 'glass', wl: '#e9e9e6', wa: '#f2c53d', f: ['#d9d9d6', '#bdbdba'], fp: 'plain', ce: '#f4f4f2', cp: 'arch', l: 'led', nm: 'plate', info: 'наземная крытая станция в стиле старинных вокзалов; стеклянные стены, жёлтые акценты' },
-      { n: 'Прокшино', sid: 's261', d: 1960, y: 2019, dp: 0, t: 'ground', c: '#f4f4f2', c2: '#d42a2a', w: '#bcd8e0', wp: 'glass', wl: '#e9e9e6', wa: '#d42a2a', f: ['#d9d9d6', '#bdbdba'], fp: 'plain', ce: '#f4f4f2', cp: 'arch', l: 'led', nm: 'plate', info: 'наземная крытая станция со стеклянными стенами; красные и жёлтые элементы' },
+      { n: 'Филатов Луг', sid: 's260', d: 3210, y: 2019, dp: 12, t: 'span', c: '#f4f4f2', c2: '#f2c53d', w: '#eef1f2', wp: 'panel', wl: '#d9dcdd', wa: '#f2c53d', f: ['#d9d9d6', '#bdbdba'], fp: 'plain', ce: '#f4f4f2', cp: 'arch', l: 'led', nm: 'plate', info: 'однопролётная мелкого заложения в стиле старинных вокзалов: белые арки и жёлтые акценты' },
+      { n: 'Прокшино', sid: 's261', d: 1960, y: 2019, dp: 12, t: 'col', cs: 7, csh: 'rnd', c: '#f4f4f2', c2: '#d42a2a', w: '#eceae6', wp: 'panel', wl: '#d42a2a', wa: '#d42a2a', f: ['#d9d9d6', '#bdbdba'], fp: 'plain', ce: '#f4f4f2', cp: 'flat', l: 'led', nm: 'plate', info: 'колонная мелкого заложения; светлый зал с красными и жёлтыми элементами' },
       { n: 'Ольховая', sid: 's262', d: 1240, y: 2019, dp: 12, t: 'span', c: '#f2f0ea', w: '#f3f1ea', wp: 'origami', wl: '#e8862a', wa: '#f2c53d', f: ['#c9c6bf', '#a9a69f'], fp: 'stripe', ce: '#f5f3ee', cp: 'origami', l: 'led', nm: 'plate', info: 'однопролётная; оформление в стиле оригами — белый, жёлтый и оранжевый' },
       { n: 'Новомосковская', sid: 's263', d: 1800, y: 2019, dp: 15, t: 'col', cs: 7, csh: 'rnd', c: '#dcdcd8', w: '#9b1b30', wp: 'panel', wl: '#3a3a3a', wa: '#b5283f', f: ['#bdb6a8', '#8e8e8c'], fp: 'stripe', ce: '#e6e3dc', cp: 'flat', l: 'led', nm: 'plate', info: 'путевые стены — рубиново-красные металлокерамические панели' },
       { n: 'Потапово', sid: 's444', d: 0, y: 2024, dp: 15, t: 'col', cs: 7, csh: 'rnd', c: '#e4e4e0', w: '#5f7f74', wp: 'panel', wl: '#2e3a36', wa: '#86a89c', f: ['#c2c0b9', '#8e8e8c'], fp: 'stripe', ce: '#e9e9e6', cp: 'flat', l: 'led', nm: 'plate', info: 'конечная станция, открыта в 2024 году' },
     ],
-    // открытые участки (в «прямых» координатах линии, относительно центров станций)
+    // открытые участки: osm — участок с реальной осью и окружением, привязанный к станции anchor
     outdoor: [
-      { from: ['Воробьёвы горы', -620], to: ['Воробьёвы горы', 420], kind: 'bridge' },
-      { from: ['Саларьево', 1250], to: ['Прокшино', 760], kind: 'surface' },
+      // Лужнецкий метромост с крытой галереей; ось и окружение — по данным OpenStreetMap
+      { osm: 'luzh', rev: true, anchor: 'Воробьёвы горы', kind: 'bridge' },
+    ],
+  },
+
+  ln2: {
+    id: 'ln2',
+    num: '2',
+    name: 'Замоскворецкая линия',
+    short: 'Зелёная',
+    color: '#4BAF4F',
+    stations: [
+      { n: 'Ховрино', sid: 's243', d: 1470, y: 2017, dp: 12, t: 'col', cs: 7, csh: 'rnd', c: '#ecebe7', w: '#dfe3e6', wp: 'panel', wl: '#4a4d50', wa: '#4BAF4F', f: ['#bdbdba', '#8e8e8c'], fp: 'stripe', ce: '#ecebe7', cp: 'flat', l: 'led', nm: 'plate', info: 'колонная двухпролётная мелкого заложения, открыта в 2017 году' },
+      { n: 'Беломорская', sid: 's254', d: 1280, y: 2018, dp: 12, t: 'col', cs: 7, csh: 'sq', c: '#f1f0ec', w: '#f1f0ec', wp: 'marble', wl: '#3a3a3a', wa: '#3d6fa8', f: ['#9a9a96', '#5a5a58'], fp: 'check', ce: '#efeee9', cp: 'flat', l: 'led', nm: 'metal', info: 'колонны и стены облицованы белым полоцким мрамором; панно с видами Валаама' },
+      { n: 'Речной вокзал', sid: 's20', d: 1850, y: 1964, dp: 8, t: 'col', cs: 4, csh: 'sq', c: '#e9e8e2', w: '#eef0ee', wp: 'stripes', wl: '#1e1e1e', wa: '#5b8fc2', f: ['#8e8e8c', '#6e6e6c'], fp: 'plain', ce: '#e9e9e5', cp: 'rib', l: 'strip', nm: 'metal', info: '«сороконожка»: два ряда по 40 колонн с шагом 4 м' },
+      { n: 'Водный стадион', sid: 's21', d: 2470, y: 1964, dp: 6, t: 'col', cs: 4, csh: 'sq', c: '#a9a9a6', w: '#f0efea', wp: 'tile', wl: '#1e1e1e', wa: '#dcdbd6', f: ['#8e8e8c', '#6e6e6c'], fp: 'plain', ce: '#e9e9e5', cp: 'rib', l: 'strip', nm: 'metal', info: 'колонны — серый полосчатый мрамор, путевые стены — белая керамическая плитка' },
+      { n: 'Войковская', sid: 's22', d: 2020, y: 1964, dp: 7, t: 'col', cs: 4, csh: 'sq', c: '#e9e8e2', w: '#7fa6c8', wp: 'stripes', wl: '#1e1e1e', wa: '#1e1e1e', f: ['#a6a6a2', '#1e1e1e'], fp: 'check', ce: '#e9e9e5', cp: 'rib', l: 'strip', nm: 'metal', info: 'путевые стены — голубая и чёрная плитка; пол — яйцевский гранит и габбро' },
+      { n: 'Сокол', sid: 's23', d: 1230, y: 1938, dp: 10, t: 'col', cs: 7.4, csh: 'flare', c: '#e6dccb', w: '#e6dcc4', wp: 'tile', wl: '#7a6a56', wa: '#cbbd9e', f: ['#8e8e8c', '#c9bba0'], fp: 'check', ce: '#ece6d8', cp: 'rib', l: 'strip', nm: 'metal', info: 'колонная двухпролётная: два свода опираются на средний ряд колонн' },
+      { n: 'Аэропорт', sid: 's24', d: 2060, y: 1938, dp: 10, t: 'vault', c: '#efe9dc', w: '#efe5cf', wp: 'marble', wl: '#7a5a46', wa: '#c9a46b', f: ['#a6413a', '#8e8e8c'], fp: 'check', ce: '#efeadf', cp: 'rib', l: 'niche', nm: 'metal', info: 'односводчатая; свод с рёбрами напоминает каркас дирижабля' },
+      { n: 'Динамо', sid: 's25', d: 2230, y: 1938, dp: 40, t: 'pylon', deep: true, cs: 9, c: '#c9b6a0', c2: '#5a5050', w: '#e9e2d0', wp: 'tile', wl: '#4a3a30', wa: '#b8a080', f: ['#8e8e8c', '#2a2a2a'], fp: 'check', ce: '#ece8de', cp: 'flat', l: 'cornice', nm: 'metal', info: 'пилоны облицованы мрамором «уфалей» с фарфоровыми медальонами на спортивные темы' },
+      { n: 'Белорусская', sid: 's26', d: 1210, y: 1938, dp: 33, t: 'pylon', deep: true, cs: 9, c: '#f0efea', c2: '#bdb9b0', w: '#efede6', wp: 'marble', wl: '#3a3a3a', wa: '#c9c4b8', f: ['#8f3a32', '#2a2a2a'], fp: 'check', ce: '#efede8', cp: 'flat', l: 'cornice', nm: 'metal', info: 'пилоны из белого мрамора; пол выложен белорусским орнаментом' },
+      { n: 'Маяковская', sid: 's27', d: 770, y: 1938, dp: 33, t: 'cold', deep: true, cs: 6, csh: 'rnd', c: '#b8b9bb', c2: '#c97b84', w: '#d8c8bd', wp: 'marble', wl: '#7a3a3a', wa: '#c97b84', f: ['#f0efea', '#7a4a4a'], fp: 'check', ce: '#f0ebe0', cp: 'coffer', l: 'niche', nm: 'metal', info: 'колонны из нержавеющей стали и родонита; в овальных куполах свода — мозаики Дейнеки' },
+      { n: 'Тверская', sid: 's28', d: 1190, y: 1979, dp: 42, t: 'pylon', deep: true, cs: 8, c: '#d9d8d4', c2: '#8a8a86', w: '#d9d8d4', wp: 'marble', wl: '#3a3a38', wa: '#a6a6a2', f: ['#8f3a32', '#6e2a24'], fp: 'stripe', ce: '#e6e5e0', cp: 'flat', l: 'cornice', nm: 'metal', info: 'пилонная трёхсводчатая (42 м); светло-серый мрамор, пол из красного гранита' },
+      { n: 'Театральная', sid: 's29', d: 1900, y: 1938, dp: 35, t: 'pylon', deep: true, cs: 9, c: '#efe6d6', c2: '#b98c4a', w: '#efe6d6', wp: 'marble', wl: '#7a5a46', wa: '#c9a46b', f: ['#8e8e8c', '#2a2a2a'], fp: 'check', ce: '#efe9dc', cp: 'coffer', l: 'cornice', nm: 'metal', info: 'фарфоровые барельефы танцоров в национальных костюмах на пилонах' },
+      { n: 'Новокузнецкая', sid: 's30', d: 1440, y: 1943, dp: 38, t: 'pylon', deep: true, cs: 9, c: '#d8cdbd', c2: '#8a7a6a', w: '#e6dcc8', wp: 'marble', wl: '#5a4a3a', wa: '#b8a080', f: ['#8e8e8c', '#c9bba0'], fp: 'check', ce: '#ece6d8', cp: 'coffer', l: 'chand', nm: 'metal', info: 'массивные пилоны из прохоро-баландинского мрамора, мозаики на своде' },
+      { n: 'Павелецкая', sid: 's31', d: 3020, y: 1943, dp: 33, t: 'cold', deep: true, cs: 6, csh: 'fac', c: '#ece9e1', c2: '#c9a46b', w: '#efede6', wp: 'marble', wl: '#4a3a30', wa: '#c9a46b', f: ['#8e8e8c', '#2a2a2a'], fp: 'check', ce: '#efebe2', cp: 'coffer', l: 'chand', nm: 'metal', info: 'колонная трёхсводчатая, перестроена из пилонной в 1950-х' },
+      { n: 'Автозаводская', sid: 's32', d: 1470, y: 1943, dp: 11, t: 'col', cs: 6.5, csh: 'fac', c: '#d8c2b0', w: '#e4dacb', wp: 'marble', wl: '#5a4a3a', wa: '#b8a080', f: ['#8e8e8c', '#8f3a32'], fp: 'check', ce: '#ece6d8', cp: 'coffer', l: 'chand', nm: 'metal', ch: 6.2, info: 'высокий колонный зал; мозаики на тему Великой Отечественной войны' },
+      { n: 'Технопарк', sid: 's198', d: 1980, y: 2015, dp: 0, t: 'side', c: '#b9bec2', c2: '#7b3fa3', w: '#c9cdd1', wp: 'panel', wl: '#8c8f92', wa: '#7b3fa3', f: ['#a3a39f', '#8e8e8c'], fp: 'plain', ce: '#5d6166', cp: 'flat', l: 'led', nm: 'plate', info: 'наземная крытая станция с двумя боковыми платформами; решётчатый потолок с фиолетовыми вставками, пешеходный мост над путями' },
+      { n: 'Коломенская', sid: 's33', d: 2800, y: 1969, dp: 9, t: 'col', cs: 4, csh: 'fac', c: '#e8e6e0', w: '#efeee9', wp: 'inserts', wl: '#2a2a2a', wa: '#9a9a96', f: ['#8e8e8c', '#6e6e6c'], fp: 'plain', ce: '#e9e9e5', cp: 'rib', l: 'strip', nm: 'metal', info: '«сороконожка» с восьмигранными колоннами' },
+      { n: 'Каширская', sid: 's34', d: 2260, y: 1969, dp: 7, t: 'col', cs: 4, csh: 'sq', c: '#cfcfcc', w: '#e9e9e6', wp: 'tile', wl: '#3a3a38', wa: '#4BAF4F', f: ['#8e8e8c', '#6e6e6c'], fp: 'plain', ce: '#e9e9e5', cp: 'rib', l: 'strip', nm: 'metal', info: 'двухзальная колонная станция мелкого заложения' },
+      { n: 'Кантемировская', sid: 's35', d: 1840, y: 1984, dp: 8, t: 'vault', c: '#e6e1d6', w: '#8a5a42', wp: 'marble', wl: '#3a2a22', wa: '#c9a46b', f: ['#2a2a2a', '#8f3a32'], fp: 'check', ce: '#ece8df', cp: 'rib', l: 'niche', nm: 'metal', info: 'односводчатая; коричневый мрамор с орнаментальными вставками военно-исторической темы' },
+      { n: 'Царицыно', sid: 's36', d: 1940, y: 1984, dp: 8, t: 'col', cs: 6.5, csh: 'sq', c: '#eceae4', w: '#d9b25c', wp: 'marble', wl: '#8f3a32', wa: '#b0472f', f: ['#8e8e8c', '#8f3a32'], fp: 'stripe', ce: '#ece8df', cp: 'rib', l: 'strip', nm: 'metal', info: 'путевые стены — жёлтый и красный мрамор с мозаичными вставками' },
+      { n: 'Орехово', sid: 's37', d: 1650, y: 1984, dp: 9, t: 'col', cs: 6.5, csh: 'sq', c: '#efefea', w: '#e6e6e1', wp: 'marble', wl: '#6e6e6c', wa: '#b4b4ae', f: ['#8e8e8c', '#6e6e6c'], fp: 'plain', ce: '#ecebe6', cp: 'coffer', l: 'niche', nm: 'metal', info: 'белый и серый мрамор; светильники в кессонах потолка' },
+      { n: 'Домодедовская', sid: 's38', d: 1690, y: 1985, dp: 9, t: 'col', cs: 6.5, csh: 'sq', c: '#e6e6e2', w: '#b9b9b4', wp: 'marble', wl: '#3a3a3a', wa: '#b87333', f: ['#3a3a3a', '#8e8e8c'], fp: 'check', ce: '#ecebe6', cp: 'rib', l: 'strip', nm: 'metal', info: 'серый полосатый мрамор; медные панно с летящими самолётами' },
+      { n: 'Красногвардейская', sid: 's39', d: 2570, y: 1985, dp: 9, t: 'vault', c: '#e9e4da', w: '#8f3a32', wp: 'marble', wl: '#4a2a22', wa: '#b0472f', f: ['#8e8e8c', '#7a7a78'], fp: 'plain', ce: '#efebe3', cp: 'coffer', l: 'niche', nm: 'metal', info: 'односводчатая с кессонированным сводом; путевые стены — красный мрамор' },
+      { n: 'Алма-Атинская', sid: 's187', d: 0, y: 2012, dp: 9, t: 'vault', c: '#d6d6d2', w: '#8e8f90', wp: 'panel', wl: '#3a3a3a', wa: '#c4282b', f: ['#d9d9d6', '#5a5a58'], fp: 'check', ce: '#e9e9e6', cp: 'rib', l: 'niche', nm: 'metal', info: 'односводчатая; серый гранит, граница свода отмечена красной линией' },
+    ],
+    // открытый участок Автозаводская — Технопарк — Нагатинский метромост — Коломенская (OpenStreetMap)
+    outdoor: [
+      { osm: 'nag', rev: false, anchor: 'Технопарк', kind: 'open' },
     ],
   },
 
@@ -98,9 +136,31 @@ export const LINES = {
     ],
     outdoor: [],
   },
+
+  ln16: {
+    id: 'ln16',
+    num: '16',
+    name: 'Троицкая линия',
+    short: 'Троицкая',
+    color: '#03795F',
+    stations: [
+      { n: 'ЗИЛ', sid: 's445', d: 2760, y: 2025, dp: 15, t: 'col', cs: 8, csh: 'rnd', c: '#d9d9d6', w: '#c9cacb', wp: 'panel', wl: '#3a3a3a', wa: '#c4282b', f: ['#bdbdba', '#8e8e8c'], fp: 'stripe', ce: '#e6e6e3', cp: 'flat', l: 'led', nm: 'plate', info: 'на путевых стенах — автомобили ЗИЛ разных лет; название — в виде эмблемы завода' },
+      { n: 'Крымская', sid: 's446', d: 2290, y: 2025, dp: 15, t: 'col', cs: 8, csh: 'rnd', c: '#bfc4c8', w: '#d2d4d4', wp: 'cells', wl: '#4a4d50', wa: '#9ea3a8', f: ['#c2c4c4', '#6e6e6c'], fp: 'stripe', ce: '#c9cdd1', cp: 'grid', l: 'led', nm: 'plate', info: 'стальные оттенки: потолок из алюминиевых сотовых панелей, светло-серый гранит' },
+      { n: 'Академическая', sid: 's447', d: 2230, y: 2025, dp: 15, t: 'col', cs: 8, csh: 'sq', c: '#e8e4dc', w: '#d8cbb8', wp: 'frieze', wl: '#4a3e30', wa: '#b0302a', f: ['#c9c2b6', '#8c857a'], fp: 'stripe', ce: '#ece8e0', cp: 'flat', l: 'led', nm: 'plate', info: 'античные сюжеты на путевых стенах, анфилада красных «порталов»' },
+      { n: 'Вавиловская', sid: 's448', d: 1880, y: 2025, dp: 15, t: 'col', cs: 8, csh: 'frame', c: '#e9e9e6', c2: '#f2c53d', w: '#efefea', wp: 'marble', wl: '#1e1e1e', wa: '#f2c53d', f: ['#efefea', '#1e1e1e'], fp: 'check', ce: '#ecebe8', cp: 'flat', l: 'led', nm: 'plate', info: 'колонны-«галочки» с жёлтыми вставками; белый мрамор и чёрный гранит' },
+      { n: 'Новаторская', sid: 's449', d: 2760, y: 2024, dp: 15, t: 'col', cs: 8, csh: 'rnd', c: '#e8e8e4', w: '#e6e8ea', wp: 'panel', wl: '#3a3a3a', wa: '#3d9a8a', f: ['#bdbdba', '#8e8e8c'], fp: 'stripe', ce: '#ececea', cp: 'flat', l: 'led', nm: 'plate', info: 'колонная трёхпролётная мелкого заложения' },
+      { n: 'Университет Дружбы Народов', sid: 's450', d: 2930, y: 2024, dp: 15, t: 'col', cs: 8, csh: 'rnd', c: '#e8e4dc', w: '#b8bec4', wp: 'panel', wl: '#3a3a3a', wa: '#2f6fa8', f: ['#c2c0b9', '#8e8e8c'], fp: 'stripe', ce: '#ececea', cp: 'flat', l: 'led', nm: 'plate', info: 'алюминиевые панели с названием на путевых стенах, колонны в мраморе' },
+      { n: 'Генерала Тюленева', sid: 's451', d: 1190, y: 2024, dp: 15, t: 'col', cs: 8, csh: 'sq', c: '#dedcd6', w: '#8a8e90', wp: 'panel', wl: '#2a2a2a', wa: '#a8322d', f: ['#bdbdba', '#5a5a58'], fp: 'stripe', ce: '#e6e6e2', cp: 'flat', l: 'led', nm: 'plate', info: 'колонная трёхпролётная мелкого заложения' },
+      { n: 'Тютчевская', sid: 's452', d: 2100, y: 2024, dp: 15, t: 'col', cs: 8, csh: 'rnd', c: '#e4e2dc', w: '#2f3e5c', wp: 'panel', wl: '#1e2433', wa: '#c9a46b', f: ['#bdbdba', '#5a5a58'], fp: 'stripe', ce: '#e6e6e2', cp: 'flat', l: 'led', nm: 'plate', info: 'колонная трёхпролётная мелкого заложения' },
+      { n: 'Корниловская', sid: 's453', d: 2860, y: 2024, dp: 15, t: 'col', cs: 8, csh: 'sq', c: '#e8e4dc', w: '#c9b89a', wp: 'panel', wl: '#5a4a3a', wa: '#8a6a3a', f: ['#c9c2b6', '#8c857a'], fp: 'stripe', ce: '#ece8e0', cp: 'flat', l: 'led', nm: 'plate', info: 'колонная трёхпролётная мелкого заложения' },
+      { n: 'Коммунарка', sid: 's454', d: 1470, y: 2024, dp: 15, t: 'col', cs: 8, csh: 'rnd', c: '#e8e8e4', w: '#d6d0c6', wp: 'squares', wl: '#5a4a3a', wa: '#4a9a7a', f: ['#c9c2b6', '#8c857a'], fp: 'check', ce: '#e9e7e2', cp: 'flat', l: 'led', nm: 'plate', info: 'колонная двухпролётная мелкого заложения' },
+      { n: 'Новомосковская', sid: 's455', d: 0, y: 2024, dp: 15, t: 'vault', c: '#efefea', w: '#efefea', wp: 'panel', wl: '#3a3a3a', wa: '#03795F', f: ['#bdbdba', '#8e8e8c'], fp: 'stripe', ce: '#efefea', cp: 'rib', l: 'niche', nm: 'plate', info: 'односводчатая мелкого заложения; пересадка на Сокольническую линию' },
+    ],
+    outdoor: [],
+  },
 };
 
-export const PLAYABLE = ['ln1', 'ln6'];
+export const PLAYABLE = ['ln1', 'ln2', 'ln6', 'ln16'];
 
 export const TRAINS = {
   '717': {

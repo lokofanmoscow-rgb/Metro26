@@ -6,6 +6,7 @@ import { LINES, PLAYABLE, TRAINS } from './data/lines.js';
 import { LIVERY } from './engine/train.js';
 import { fmtTime } from './engine/util.js';
 import { loadHQ } from './engine/hq.js';
+import { loadOSM } from './engine/osm.js';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'metro26.saves.v1';
@@ -433,6 +434,7 @@ function boot() {
   if (st) { hudOn = st.hud !== false; game.applySettings(st); }
   // фото-текстуры детальных станций декодируются в фоне
   loadHQ();
+  loadOSM();
   $('btnStart').onclick = () => startGame();
   $('btnStation').onclick = stationDialog;
   $('btnContinue').onclick = () => { const a = saves.all().auto; if (a) { $('optShort').checked = !!a.data.short; startGame(a.data); } };

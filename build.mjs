@@ -14,7 +14,7 @@ async function build() {
     target: ['es2020'],
     write: false,
     legalComments: 'none',
-    loader: { '.jpg': 'dataurl' },
+    loader: { '.jpg': 'dataurl', '.png': 'dataurl' },
   });
   const js = res.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
   const css = readFileSync('src/styles.css', 'utf8');
@@ -32,7 +32,7 @@ async function build() {
 }
 
 if (watch) {
-  const ctx = await esbuild.context({ entryPoints: ['src/main.js'], bundle: true, write: false, loader: { '.jpg': 'dataurl' }, plugins: [{ name: 'rebuild', setup(b) { b.onEnd(() => build().catch((e) => console.error(e))); } }] });
+  const ctx = await esbuild.context({ entryPoints: ['src/main.js'], bundle: true, write: false, loader: { '.jpg': 'dataurl', '.png': 'dataurl' }, plugins: [{ name: 'rebuild', setup(b) { b.onEnd(() => build().catch((e) => console.error(e))); } }] });
   await ctx.watch();
   console.log('Слежение за изменениями…');
 } else {
