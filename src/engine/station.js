@@ -121,6 +121,7 @@ export function makeClock() {
   const c = makeCanvas(352, 64);
   const tex = canvasTex(c, { mip: false });
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.userData.text = true;
   const ctx = c.getContext('2d');
   let last = '';
   const draw = (time, interval) => {
@@ -219,8 +220,47 @@ export function buildStation(route, st, line) {
   return r.value;
 }
 
+// островная раскладка из LAYOUTS: одна платформа у нашего пути и путь за ней (возможно справа)
+function islandOf(L) {
+  if (!L || !L.tr) return null;
+  if (L.tr.length !== 2 || !L.pl || L.pl.length !== 1) return null;
+  const [p0, p1] = L.pl[0], other = L.tr.find((t) => t[1] !== 'me');
+  if (Math.abs(p1 + 1.48) < 0.05 && Math.abs(other[0] - (p0 - 1.48)) < 0.3) return { mirror: false, W: p1 - p0, other };
+  if (Math.abs(p0 - 1.48) < 0.05 && Math.abs(other[0] - (p1 + 1.48)) < 0.3) return { mirror: true, W: p1 - p0, other };
+  return null;
+}
+
+// текст на табличках, часах и указателях при зеркальной сборке: развернуть по горизонтали
+function unmirrorText(grp) {
+  grp.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh) return;
+    const mt = Array.isArray(o.material) ? o.material[0] : o.material;
+    if (!mt || !mt.map || !mt.map.userData.text) return;
+    const uv = o.geometry.attributes.uv;
+    if (!uv || o.geometry.userData.unmirrored) return;
+    for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
+    uv.needsUpdate = true;
+    o.geometry.userData.unmirrored = true;
+  });
+}
+
+// поставить группу станции в точку трассы; mirror — собрана в отражённой системе (наша платформа слева)
+function placeStation(grp, route, st, mirror) {
+  if (mirror) {
+    unmirrorText(grp);
+    grp.scale.x = -1;
+    grp.updateMatrix();
+    grp.matrix.premultiply(route.matrixAt(st.c, new THREE.Matrix4(), true));
+    grp.matrix.decompose(grp.position, grp.quaternion, grp.scale);
+  } else grp.applyMatrix4(route.matrixAt(st.c, new THREE.Matrix4(), true));
+  grp.updateMatrixWorld(true);
+}
+
 export function* buildStationSteps(route, st, line) {
   if (st.style.t === 'side') { yield; return buildSideStation(route, st, line); }
+  const LAY = st.lay;
+  const ISL = islandOf(LAY);
+  if (LAY && LAY.tr && !ISL) return yield* buildMultiSteps(route, st, line, LAY);
   const style = st.style;
   const grp = new THREE.Group();
   grp.name = 'station:' + st.name;
@@ -236,6 +276,10 @@ export function* buildStationSteps(route, st, line) {
   let W = 10; // ширина платформы
   if (t === 'pylon' || t === 'cold') W = 19;
   if (t === 'bridge') W = 14;
+  if (LAY && LAY.W) W = LAY.W;
+  if (ISL) W = ISL.W;
+  const mirror = !!(ISL && ISL.mirror);
+  const glassSide = LAY && LAY.glass ? (LAY.glass === 'R') !== mirror ? 'R' : 'L' : null; // в системе сборки
   const xFar = EDGE_X - W; // дальний край платформы
   const oppX = xFar - 1.48; // ось встречного пути
   info.oppX = oppX;
@@ -281,7 +325,11 @@ export function* buildStationSteps(route, st, line) {
   // путевые стены
   if (t !== 'ground' && t !== 'bridge' && !hq) {
     const top = (t === 'pylon' || t === 'cold') ? 4.2 : t === 'vault' ? 3.4 : yC;
-    grp.add(new THREE.Mesh(mergeGeoms([wallX(rightWall, BED_Y - 0.4, top, -HZ, HZ, -1), wallX(leftWall, BED_Y - 0.4, top, -HZ, HZ, 1)]), wallMat));
+    const walls = [];
+    if (glassSide !== 'R') walls.push(wallX(rightWall, BED_Y - 0.4, top, -HZ, HZ, -1));
+    if (glassSide !== 'L') walls.push(wallX(leftWall, BED_Y - 0.4, top, -HZ, HZ, 1));
+    grp.add(new THREE.Mesh(mergeGeoms(walls), wallMat));
+    if (glassSide) buildPanorama(grp, glassSide === 'R' ? rightWall : leftWall, glassSide === 'R' ? 1 : -1, top, style);
   }
 
   const colRows = [];
@@ -542,8 +590,8 @@ export function* buildStationSteps(route, st, line) {
   const zs = [];
   for (let z = -PL + 12; z < PL - 5; z += 26) zs.push(z);
   if (t !== 'ground' && t !== 'bridge' && !info.customNames) {
-    nameBoards(grp, style, rightWall, -1, nameY, zs);
-    nameBoards(grp, style, leftWall, 1, nameY, zs);
+    if (glassSide !== 'R') nameBoards(grp, style, rightWall, -1, nameY, zs);
+    if (glassSide !== 'L') nameBoards(grp, style, leftWall, 1, nameY, zs);
   }
   yield; // постройка по частям: следующий кусок — в следующем кадре
   // подвесные указатели над краем платформы
@@ -556,14 +604,17 @@ export function* buildStationSteps(route, st, line) {
   }
   grp.add(new THREE.Mesh(mergeGeoms(sgns), signMat));
 
-  // остановочный знак «СТОП» и выходной светофор
+  // остановочный знак «СТОП» и выходной светофор — на путевой стене / над тоннелем
+  // (у наземных станций стены нет — там их не ставим)
+  const m = sharedMats();
+  if (t === 'ground' || t === 'bridge') info.signal = { set() {} };
+  else {
   const stopTex = signTexture(['СТОП'], { bg: '#ffffff', fg: '#c81e1e', w: 256, h: 128 });
   const stop = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.3), new THREE.MeshBasicMaterial({ map: stopTex }));
   stop.rotation.y = -Math.PI / 2;
-  stop.position.set(rightWall - 0.05, 2.4, -STOP_OFFSET - 1.5);
+  stop.position.set((glassSide === 'R' ? EDGE_X + 0.05 : rightWall - 0.05), 2.4, -STOP_OFFSET - 1.5);
+  if (glassSide === 'R') stop.rotation.y = Math.PI / 2;
   grp.add(stop);
-  if (t === 'ground' || t === 'bridge') { stop.position.x = 2.0; stop.position.y = 2.2; }
-  const m = sharedMats();
   const sig = new THREE.Group();
   sig.add(new THREE.Mesh(boxGeom(0.3, 0.75, 0.2, 0, 0, 0), m.sigPost));
   const red = new THREE.Mesh(new THREE.CircleGeometry(0.09, 16), m.red);
@@ -576,6 +627,7 @@ export function* buildStationSteps(route, st, line) {
   info.signal = {
     set(ok) { red.material = ok ? m.off : m.red; green.material = ok ? m.green : m.off; },
   };
+  }
   // часы над тоннелем
   if (t !== 'ground' && t !== 'bridge') {
     const clk = makeClock();
@@ -594,9 +646,10 @@ export function* buildStationSteps(route, st, line) {
   info.W = W;
   if (!hq) info.ceilY = yC;
   if (t === 'bridge') info.camY = 5.1; // камера «вид снаружи» — под перекрытием моста
+  if (mirror) info.side = 1; // платформа справа по ходу — двери справа
+  info.layOpp = oppX * (mirror ? -1 : 1); // путь за платформой в системе трассы
 
-  grp.applyMatrix4(route.matrixAt(st.c, new THREE.Matrix4(), true));
-  grp.updateMatrixWorld(true);
+  placeStation(grp, route, st, mirror);
   return { group: grp, info, st };
 }
 
@@ -991,12 +1044,15 @@ function buildSideStation(route, st, line) {
   const sg = [];
   for (let z = -PL + 20; z < PL; z += 40) for (const x of [xP1 - 0.8, xQ0 + 0.8]) sg.push(...signPair(3.6, 0.45, x, ceilY - 0.6, z).map(flipU));
   grp.add(new THREE.Mesh(mergeGeoms(sg), new THREE.MeshBasicMaterial({ map: sTex })));
-  // знак «СТОП» и светофор — справа по ходу (в зеркальной системе — слева)
+  // знак «СТОП» и светофор у наземной станции не ставим: путь под открытым небом, крепить их не к чему
+  const SIDE_SIG = false;
+  if (SIDE_SIG) {
   const stopTex = signTexture(['СТОП'], { bg: '#ffffff', fg: '#c81e1e', w: 256, h: 128 });
   const stop = new THREE.Mesh(flipU(new THREE.PlaneGeometry(0.6, 0.3)), new THREE.MeshBasicMaterial({ map: stopTex }));
   stop.rotation.y = Math.PI / 2;
   stop.position.set(EDGE_X - 0.4, 2.6, -STOP_OFFSET - 1.5);
   grp.add(stop);
+  }
   const sig = new THREE.Group();
   sig.add(new THREE.Mesh(boxGeom(0.3, 0.75, 0.2, 0, 0, 0), m.sigPost));
   const red = new THREE.Mesh(new THREE.CircleGeometry(0.09, 16), m.red);
@@ -1006,7 +1062,7 @@ function buildSideStation(route, st, line) {
   sig.add(red, green);
   sig.add(new THREE.Mesh(boxGeom(0.1, 2.3, 0.1, 0, -1.5, 0), m.sigPost));
   sig.position.set(-2.1, 2.6, -HZ - 2);
-  grp.add(sig);
+  if (SIDE_SIG) grp.add(sig);
   info.signal = { set(ok) { red.material = ok ? m.off : m.red; green.material = ok ? m.green : m.off; } };
   const clk = makeClock();
   if (style.open) clk.mesh.position.set((xP0 + xP1) / 2, ceilY - 0.7, -PL + 9);
@@ -1061,4 +1117,278 @@ function buildCanopy(grp, style) {
   const tex = nameTexture(style.n, 'plate');
   const nm = new THREE.MeshBasicMaterial({ map: tex });
   grp.add(new THREE.Mesh(mergeGeoms([-50, -10, 30, 70].flatMap((z) => signPair(0.6 * tex.userData.aspect, 0.6, xm, roofY - 0.75, z))), nm));
+}
+
+// ---------- Панорама за остеклённой путевой стеной (полуподземные станции) ----------
+// x — плоскость стены, o — наружу (+1 вправо, −1 влево), top — верх стены
+function buildPanorama(grp, x, o, top, style) {
+  const glass = new THREE.MeshLambertMaterial({ color: 0xc8dde4, transparent: true, opacity: 0.2, emissive: 0x1c2a2e, side: THREE.DoubleSide, depthWrite: false });
+  const frame = new THREE.MeshLambertMaterial({ color: 0x9aa0a4, emissive: 0x202224 });
+  const conc = mat(concreteTexture('#8f8b82'), 0.4);
+  const y0 = BED_Y + 0.9; // парапет внизу
+  grp.add(new THREE.Mesh(wallX(x, BED_Y - 0.4, y0, -HZ, HZ, -o), conc));
+  grp.add(new THREE.Mesh(wallX(x, y0, top, -HZ, HZ, -o), glass));
+  const mull = [];
+  for (let z = -HZ; z <= HZ; z += 3) mull.push(boxGeom(0.12, top - y0, 0.14, x, (top + y0) / 2, z));
+  for (const y of [y0, (y0 + top) / 2, top - 0.1]) mull.push(boxGeom(0.14, 0.12, 2 * HZ, x, y, 0));
+  grp.add(new THREE.Mesh(mergeGeoms(mull), frame));
+  // снаружи: склон к низине, газон, деревья и небо (без освещения — дневной свет)
+  const gY = PLAT_Y - 4.5;
+  const grassM = new THREE.MeshBasicMaterial({ color: 0x6f8f4e });
+  const slopeM = new THREE.MeshBasicMaterial({ color: 0x7c8a5a });
+  const g = new THREE.PlaneGeometry(320, 460); g.rotateX(-Math.PI / 2); g.translate(x + o * (16 + 160), gY, 0);
+  grp.add(new THREE.Mesh(g, grassM));
+  // откос от стены вниз
+  const sh = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(x + o * 0.2, BED_Y - 0.4, -230), new THREE.Vector3(x + o * 16, gY, -230), new THREE.Vector3(x + o * 16, gY, 230),
+    new THREE.Vector3(x + o * 0.2, BED_Y - 0.4, -230), new THREE.Vector3(x + o * 16, gY, 230), new THREE.Vector3(x + o * 0.2, BED_Y - 0.4, 230),
+  ]);
+  grp.add(new THREE.Mesh(sh, new THREE.MeshBasicMaterial({ color: slopeM.color, side: THREE.DoubleSide })));
+  const rng = mulberry32(hashStr(style.n + ':pano'));
+  const crown = new THREE.IcosahedronGeometry(1, 0), trunk = new THREE.CylinderGeometry(0.18, 0.25, 1, 6);
+  const N = 220;
+  const ci = new THREE.InstancedMesh(crown, new THREE.MeshBasicMaterial({ color: 0x4f7a3a }), N);
+  const ti = new THREE.InstancedMesh(trunk, new THREE.MeshBasicMaterial({ color: 0x5a4632 }), N);
+  const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), Sc = new THREE.Vector3();
+  for (let i = 0; i < N; i++) {
+    const d = 22 + Math.pow(rng(), 0.7) * 260, z = (rng() - 0.5) * 440, h = 6 + rng() * 9, r = 2.2 + rng() * 2.8;
+    const tx = x + o * d;
+    M4.compose(V.set(tx, gY + h * 0.4, z), Q.identity(), Sc.set(0.6, h * 0.8, 0.6)); ti.setMatrixAt(i, M4);
+    M4.compose(V.set(tx, gY + h * 0.78, z), Q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng() * 6), Sc.set(r, r * 1.1, r)); ci.setMatrixAt(i, M4);
+    ci.setColorAt && ci.setColorAt(i, new THREE.Color().setHSL(0.24 + rng() * 0.06, 0.38, 0.28 + rng() * 0.12));
+  }
+  if (ci.instanceColor) ci.instanceColor.needsUpdate = true;
+  grp.add(ti, ci);
+  // небо — полуцилиндр с градиентом
+  const c = makeCanvas(4, 256); const ctx = c.getContext('2d');
+  const gr = ctx.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#7fa6cf'); gr.addColorStop(0.75, '#cfdde8'); gr.addColorStop(1, '#e6ecef');
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, 4, 256);
+  const skyT = canvasTex(c, { mip: false });
+  const cyl = new THREE.CylinderGeometry(330, 330, 160, 32, 1, true, o > 0 ? 0 : Math.PI, Math.PI);
+  cyl.translate(x, gY + 70, 0);
+  grp.add(new THREE.Mesh(cyl, new THREE.MeshBasicMaterial({ map: skyT, side: THREE.BackSide, fog: false })));
+}
+
+// ---------- Станция с произвольной раскладкой путей и платформ ----------
+// Боковые платформы, зал с одним путём, три и четыре пути, наземная станция с островной и береговой платформами.
+// Собирается в системе, где наша платформа слева (как островная); если двери справа — зеркально.
+export function* buildMultiSteps(route, st, line, L) {
+  const style = st.style;
+  const t = style.t;
+  const grp = new THREE.Group();
+  grp.name = 'station:' + st.name;
+  const rng = mulberry32(hashStr(st.name));
+  const near = (a, b) => Math.abs(a - b) < 0.06;
+  const leftP = L.pl.some((p) => near(p[1], -1.48)), rightP = L.pl.some((p) => near(p[0], 1.48));
+  const door = L.door || (leftP ? -1 : 1);
+  const mirror = door > 0;
+  const m = mirror ? -1 : 1;
+  const TR = L.tr.map(([x, k, ln]) => ({ x: x * m, k, ln })).sort((a, b) => a.x - b.x);
+  const PLs = L.pl.map(([a, b]) => [Math.min(a * m, b * m), Math.max(a * m, b * m)]).sort((a, b) => a[0] - b[0]);
+  const our = PLs.find((p) => near(p[1], -1.48));
+  const open = t === 'ground';
+  const deep = !!style.deep;
+  const info = { spots: [], exits: [], lights: [], signal: { set() {} }, clock: null, side: door, stairs: [], hq: false };
+  let xMin = Math.min(...TR.map((r) => r.x - 2.25), ...PLs.map((p) => p[0]));
+  let xMax = Math.max(...TR.map((r) => r.x + 2.25), ...PLs.map((p) => p[1]));
+  if (L.hall) { const h = L.hall.map((v) => v * m).sort((a, b) => a - b); xMin = h[0]; xMax = h[1]; }
+  const vault = t === 'vault' && !open;
+  const ch = style.ch || (t === 'span' ? 4.8 : 4.4);
+  const yC = vault ? 3.4 : PLAT_Y + ch;
+  const vaultTop = vault ? 3.4 + Math.min(4.6, (xMax - xMin) * 0.45) : yC;
+  const topY = vault ? vaultTop : yC;
+  yield;
+  const wallH = Math.round((yC - (BED_Y - 0.4)) * 10) / 10;
+  const wTex = wallTexture(style, wallH, 2.1);
+  yield;
+  const wallMat = mat(wTex, 0.5);
+  const floorMat = mat(floorTexture(style), 0.45);
+  const ceilMat = mat(ceilingTexture(style), 0.55, { side: THREE.DoubleSide });
+  const darkMat = new THREE.MeshLambertMaterial({ color: 0x2a2826 });
+  const edgeMat = new THREE.MeshLambertMaterial({ color: 0xd8d6cf, emissive: 0x3a3a38 });
+  yield;
+  // пути (контактный рельс — со стороны без платформы) и лотки
+  for (const r of TR) {
+    const plL = PLs.some((p) => near(p[1], r.x - 1.48)), plR = PLs.some((p) => near(p[0], r.x + 1.48));
+    straightTrack(grp, r.x, -HZ, HZ, plL && !plR ? 1 : plR && !plL ? -1 : (r.x >= 0 ? 1 : -1));
+  }
+  grp.add(new THREE.Mesh(planeY(BED_Y, xMin, xMax, -HZ, HZ), new THREE.MeshLambertMaterial({ color: open ? 0x5f5a52 : 0x34312d })));
+  // платформы
+  const plG = [], sideG = [], edgeG = [], tact = [];
+  for (const [a, b] of PLs) {
+    plG.push(planeY(PLAT_Y, a, b, -PL, PL));
+    for (const r of TR) {
+      if (near(r.x - 1.48, b)) { sideG.push(wallX(b, BED_Y, PLAT_Y, -PL, PL, 1)); edgeG.push(planeY(PLAT_Y + 0.003, b - 0.35, b, -PL, PL, true, 1, 1)); tact.push(planeY(PLAT_Y + 0.005, b - 0.95, b - 0.6, -PL, PL, true, 1, 1)); }
+      if (near(r.x + 1.48, a)) { sideG.push(wallX(a, BED_Y, PLAT_Y, -PL, PL, -1)); edgeG.push(planeY(PLAT_Y + 0.003, a, a + 0.35, -PL, PL, true, 1, 1)); tact.push(planeY(PLAT_Y + 0.005, a + 0.6, a + 0.95, -PL, PL, true, 1, 1)); }
+    }
+    sideG.push(endWallBox(a, b, BED_Y, PLAT_Y, -PL), endWallBox(a, b, BED_Y, PLAT_Y, PL));
+  }
+  grp.add(new THREE.Mesh(mergeGeoms(plG), floorMat));
+  grp.add(new THREE.Mesh(mergeGeoms(sideG), darkMat));
+  grp.add(new THREE.Mesh(mergeGeoms(edgeG), edgeMat));
+  if (style.y >= 2010 && tact.length) grp.add(new THREE.Mesh(mergeGeoms(tact), new THREE.MeshLambertMaterial({ color: 0xe8c22a, emissive: 0x3a3008 })));
+  yield;
+  // колонны
+  const cs = style.cs || 6.5;
+  const zsCol = [];
+  for (let z = -PL + cs * 0.75; z < PL - cs * 0.5; z += cs) zsCol.push(z);
+  const rowsPlat = [], rowsBed = [];
+  const me = TR.find((r) => r.k === 'me'), rev = TR.find((r) => r.k === 'rev');
+  if (!open && !vault) {
+    if ((L.cols === 'mid' || L.cols === 'alex') && rev) rowsBed.push((me.x + rev.x) / 2);
+    if (L.cols === 'alex') for (const [a, b] of PLs) rowsPlat.push((a + b) / 2);
+    if (L.cols === 'edge') for (const [a, b] of PLs) for (const r of TR) { if (near(r.x - 1.48, b)) rowsPlat.push(b - 0.9); if (near(r.x + 1.48, a)) rowsPlat.push(a + 0.9); }
+    if (L.cols === 'isl') for (const [a, b] of PLs) if (b - a >= 6) rowsPlat.push(a + 2.15, b - 2.15);
+  }
+  const colRows = [...rowsPlat, ...rowsBed];
+  if (rowsPlat.length) grp.add(buildColumns(style, rowsPlat.flatMap((x) => zsCol.map((z) => ({ x, z }))), yC - PLAT_Y, PLAT_Y));
+  if (rowsBed.length) {
+    // колонны между путями — от лотка; у «Александровского сада» средний ряд не облицован
+    const st2 = L.cols === 'alex' ? { ...style, n: style.n + ':mid', c: '#bdb8ac', csh: style.csh } : style;
+    grp.add(buildColumns(st2, rowsBed.flatMap((x) => zsCol.map((z) => ({ x, z }))), yC - BED_Y, BED_Y));
+  }
+  if (colRows.length) {
+    const beam = new THREE.MeshLambertMaterial({ color: shade(style.ce || '#e8e8e4', -0.08), emissive: new THREE.Color(style.ce || '#e8e8e4').multiplyScalar(0.4) });
+    grp.add(new THREE.Mesh(mergeGeoms(colRows.map((x) => boxGeom(0.7, 0.45, 2 * HZ, x, yC - 0.22, 0))), beam));
+  }
+  yield;
+  // потолок, стены, светильники
+  const lampG = style.l === 'led' ? new THREE.BoxGeometry(0.12, 0.04, 6) : new THREE.BoxGeometry(0.25, 0.05, 2.6);
+  const lampsP = [];
+  if (open) {
+    // навесы над платформами (как у «Кунцевской»): плита на ряду колонн, светильники, названия
+    const conc = new THREE.MeshLambertMaterial({ map: concreteTexture('#b8b4aa'), side: THREE.DoubleSide });
+    const roofY = PLAT_Y + 3.9;
+    const slabs = [], cols = [];
+    for (const [a, b] of PLs) {
+      const trackL = TR.some((r) => near(r.x + 1.48, a)), trackR = TR.some((r) => near(r.x - 1.48, b));
+      const xc = trackL && trackR ? (a + b) / 2 : trackL ? b - 1.2 : a + 1.2; // у береговой — ряд у задней кромки
+      slabs.push(boxGeom(b - a + 0.6, 0.28, 2 * PL - 2, (a + b) / 2, roofY + 0.14, 0), boxGeom(0.6, 0.55, 2 * PL - 2, xc, roofY - 0.2, 0));
+      for (let z = -PL + 4; z <= PL - 4; z += 6.5) cols.push(boxGeom(0.55, roofY - PLAT_Y, 0.55, xc, (roofY + PLAT_Y) / 2, z));
+      for (let z = -PL + 6; z < PL - 4; z += 4) lampsP.push({ x: (a + b) / 2, y: roofY - 0.02, z });
+    }
+    grp.add(new THREE.Mesh(mergeGeoms(slabs), conc));
+    grp.add(new THREE.Mesh(mergeGeoms(cols), mat(columnTexture({ ...style, csh: 'sq' }), 0.5)));
+    grp.add(lampsMesh(new THREE.BoxGeometry(0.22, 0.04, 1.6), lampsP));
+    const tex = nameTexture(style.n, 'plate');
+    const nm = new THREE.MeshBasicMaterial({ map: tex });
+    grp.add(new THREE.Mesh(mergeGeoms(PLs.flatMap(([a, b]) => [-50, -10, 30, 70].flatMap((z) => signPair(0.6 * tex.userData.aspect, 0.6, (a + b) / 2, roofY - 0.75, z)))), nm));
+  } else {
+    if (vault) {
+      const xc = (xMin + xMax) / 2, rx = (xMax - xMin) / 2;
+      grp.add(new THREE.Mesh(profileZ(arc(xc, 3.4, rx, vaultTop - 3.4, 0, Math.PI, 36), -HZ, HZ, 4, 4), ceilMat));
+      for (let z = -PL + 3; z < PL; z += 6) for (const a of [0.6, Math.PI - 0.6]) lampsP.push({ x: xc + Math.cos(a) * rx * 0.985, y: 3.4 + Math.sin(a) * (vaultTop - 3.4) * 0.985, z });
+      // бра-шары вдоль платформ
+      const balls = [];
+      for (const [a, b] of PLs) for (let z = -PL + 6; z < PL; z += 9) balls.push({ x: (a + b) / 2, y: 3.3, z });
+      if (balls.length) grp.add(lampsMesh(new THREE.SphereGeometry(0.26, 12, 8), balls));
+    } else {
+      grp.add(new THREE.Mesh(planeY(yC, xMin, xMax, -HZ, HZ, false), ceilMat));
+      for (let z = -PL + 4; z < PL; z += (style.l === 'led' ? 7 : 4)) {
+        for (const [a, b] of PLs) lampsP.push({ x: (a + b) / 2, y: yC - 0.03, z });
+        for (const r of TR) lampsP.push({ x: r.x, y: yC - 0.03, z });
+      }
+    }
+    grp.add(lampsMesh(lampG, lampsP));
+    grp.add(new THREE.Mesh(mergeGeoms([wallX(xMin, BED_Y - 0.4, yC, -HZ, HZ, 1), wallX(xMax, BED_Y - 0.4, yC, -HZ, HZ, -1)]), wallMat));
+    const zs = []; for (let z = -PL + 12; z < PL - 5; z += 26) zs.push(z);
+    nameBoards(grp, style, xMin, 1, 2.7, zs);
+    nameBoards(grp, style, xMax, -1, 2.7, zs);
+  }
+  yield;
+  // торцы: стены с проёмами тоннелей всех путей, у платформ — проходы к выходам
+  if (!open) {
+    const endMat = mat(concreteTexture(shade(style.w, -0.1).slice(0, 7)), 0.4, { side: THREE.DoubleSide });
+    endMat.color = new THREE.Color(style.w);
+    const holes = TR.map((r) => r.x);
+    grp.add(new THREE.Mesh(mergeGeoms([
+      endWall(-HZ, xMin, xMax, BED_Y - 0.4, topY, holes, deep, 1, []),
+      endWall(HZ, xMin, xMax, BED_Y - 0.4, topY, holes, deep, -1, []),
+    ]), endMat));
+    const ew = mat(wTex, 0.45, { side: THREE.DoubleSide });
+    const ends = [], pockets = [], cor = [], corF = [];
+    for (const [a, b] of PLs) {
+      const xm = (a + b) / 2, hw = Math.min(1.6, (b - a) / 2 - 0.3);
+      const rect = [xm - hw, xm + hw, PLAT_Y, PLAT_Y + 2.6];
+      for (const zz of [-PL, PL]) {
+        ends.push(wallZHole(a, b, BED_Y - 0.4, topY, zz, rect));
+        const z1 = zz + Math.sign(zz) * 3;
+        corF.push(planeY(PLAT_Y + 0.001, xm - hw, xm + hw, Math.min(zz, z1), Math.max(zz, z1)));
+        cor.push(wallX(xm - hw, PLAT_Y, PLAT_Y + 2.6, Math.min(zz, z1), Math.max(zz, z1), 1), wallX(xm + hw, PLAT_Y, PLAT_Y + 2.6, Math.min(zz, z1), Math.max(zz, z1), -1));
+        cor.push(planeY(PLAT_Y + 2.6, xm - hw, xm + hw, Math.min(zz, z1), Math.max(zz, z1), false), wallZ(xm - hw, xm + hw, PLAT_Y, PLAT_Y + 2.6, z1));
+      }
+      for (const r of TR) {
+        if (near(r.x - 1.48, b)) pockets.push(wallX(b, BED_Y - 0.4, topY, -HZ, -PL, 1), wallX(b, BED_Y - 0.4, topY, PL, HZ, 1));
+        if (near(r.x + 1.48, a)) pockets.push(wallX(a, BED_Y - 0.4, topY, -HZ, -PL, -1), wallX(a, BED_Y - 0.4, topY, PL, HZ, -1));
+      }
+      if (a - 0.05 > xMin) pockets.push(wallX(a, BED_Y - 0.4, topY, -HZ, -PL, -1), wallX(a, BED_Y - 0.4, topY, PL, HZ, -1));
+      if (b + 0.05 < xMax) pockets.push(wallX(b, BED_Y - 0.4, topY, -HZ, -PL, 1), wallX(b, BED_Y - 0.4, topY, PL, HZ, 1));
+      // указатель выхода над проходом
+      const exitSign = signTexture(['Выход в город'], { bg: '#1f2733', w: 512, h: 96 });
+      for (const zz of [-PL, PL]) {
+        const sg = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.45), new THREE.MeshBasicMaterial({ map: exitSign }));
+        sg.position.set(xm, PLAT_Y + 2.95, zz + (zz < 0 ? 0.06 : -0.06));
+        if (zz > 0) sg.rotation.y = Math.PI;
+        grp.add(sg);
+      }
+    }
+    grp.add(new THREE.Mesh(mergeGeoms(ends), ew));
+    if (pockets.length) grp.add(new THREE.Mesh(mergeGeoms(pockets), endMat));
+    grp.add(new THREE.Mesh(mergeGeoms(cor), new THREE.MeshLambertMaterial({ color: 0x3a3632, side: THREE.DoubleSide })));
+    grp.add(new THREE.Mesh(mergeGeoms(corF), floorMat));
+    for (const zz of [-PL, PL]) info.exits.push({ x: (our[0] + our[1]) / 2, z: zz + Math.sign(zz) * 1.6, y: PLAT_Y });
+    // знак «СТОП» на столбике у края нашей платформы, светофор в устье тоннеля, часы над тоннелем
+    const m2 = sharedMats();
+    const stopTex = signTexture(['СТОП'], { bg: '#ffffff', fg: '#c81e1e', w: 256, h: 128 });
+    const stop = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.3), new THREE.MeshBasicMaterial({ map: stopTex }));
+    stop.rotation.y = Math.PI / 2;
+    stop.position.set(-1.48 - 0.3, 2.4, -STOP_OFFSET - 1.5);
+    grp.add(stop, new THREE.Mesh(boxGeom(0.06, 2.0, 0.06, -1.48 - 0.36, PLAT_Y + 1.0, -STOP_OFFSET - 1.5), m2.sigPost));
+    const sig = new THREE.Group();
+    sig.add(new THREE.Mesh(boxGeom(0.3, 0.75, 0.2, 0, 0, 0), m2.sigPost));
+    const red = new THREE.Mesh(new THREE.CircleGeometry(0.09, 16), m2.red);
+    const green = new THREE.Mesh(new THREE.CircleGeometry(0.09, 16), m2.off);
+    red.position.set(0, 0.17, -0.105); green.position.set(0, -0.17, -0.105);
+    red.rotation.y = Math.PI; green.rotation.y = Math.PI;
+    sig.add(red, green);
+    sig.position.set(1.85, 2.6, -HZ - 2);
+    grp.add(sig);
+    info.signal = { set(ok) { red.material = ok ? m2.off : m2.red; green.material = ok ? m2.green : m2.off; } };
+    const clk = makeClock();
+    clk.mesh.position.set(0, deep ? 4.75 : Math.min(yC - 0.35, 4.6), -HZ + 0.05);
+    grp.add(clk.mesh);
+    info.clock = clk;
+  } else {
+    for (const zz of [-PL, PL]) info.exits.push({ x: (our[0] + our[1]) / 2, z: zz + (zz < 0 ? 3 : -3), y: PLAT_Y });
+  }
+  yield;
+  // подвесные указатели над краями платформ, скамейки
+  const sTex = signTexture([st.name], { bg: '#1f2733', w: 1024, h: 128, line });
+  const sg = [], bench = [];
+  const sy = open ? PLAT_Y + 3.2 : Math.min(yC - 0.7, 4.2);
+  for (const [a, b] of PLs) {
+    for (let z = -PL + 20; z < PL; z += 40) {
+      if (TR.some((r) => near(r.x - 1.48, b))) sg.push(...signPair(3.6, 0.45, b - 0.6, sy, z));
+      if (TR.some((r) => near(r.x + 1.48, a))) sg.push(...signPair(3.6, 0.45, a + 0.6, sy, z));
+    }
+    if (b - a > 2.5) for (let z = -PL + 14; z < PL - 10; z += 18) bench.push(boxGeom(0.5, 0.45, 2.4, (a + b) / 2 + (colRows.some((x) => Math.abs(x - (a + b) / 2) < 0.8) ? 0.9 : 0), PLAT_Y + 0.22, z));
+  }
+  grp.add(new THREE.Mesh(mergeGeoms(sg), new THREE.MeshBasicMaterial({ map: sTex })));
+  if (bench.length) grp.add(new THREE.Mesh(mergeGeoms(bench), new THREE.MeshLambertMaterial({ color: 0x6a4a2e, emissive: 0x1a120a })));
+  // для толпы, камеры и пула светильников
+  const xm = (our[0] + our[1]) / 2;
+  for (let z = -PL + 10; z < PL - 10; z += 9) info.spots.push({ x: xm + (colRows.some((x) => Math.abs(x - xm) < 0.8) ? 0.9 : 0), z: z + 4.5 });
+  for (let z = -PL + 15; z < PL; z += 33) { info.lights.push(new THREE.Vector3(xm, (open ? PLAT_Y + 3.4 : yC - 0.6), z)); for (const [a, b] of PLs) if (b !== our[1]) info.lights.push(new THREE.Vector3((a + b) / 2, open ? PLAT_Y + 3.4 : yC - 0.6, z + 12)); }
+  info.platform = { x0: our[0] + 0.6, x1: -1.48 - 0.5, z0: -PL + 3, z1: PL - 3, y: PLAT_Y };
+  info.noCam = [];
+  info.colRows = colRows;
+  info.W = our[1] - our[0];
+  info.ceilY = open ? PLAT_Y + 3.9 : yC;
+  info.camY = open ? 7.5 : yC - 0.4;
+  info.camX = [Math.max(xMin + 0.4, our[0] + 0.4), 1.9];
+  info.oppX = rev ? rev.x : our[0] - 1.48;
+  info.layOpp = rev ? rev.x * m : null;
+  info.lay = L;
+  placeStation(grp, route, st, mirror);
+  return { group: grp, info, st };
 }

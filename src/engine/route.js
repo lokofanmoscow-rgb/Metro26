@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { mulberry32, hashStr, clamp } from './util.js';
 import { trackPolyline, frameMatrix } from './osm.js';
+import { stationLayout } from '../data/layouts.js';
 
 export const PLATFORM_LEN = 162;
 export const STOP_OFFSET = 78; // от центра платформы до остановочной отметки (голова поезда)
@@ -55,6 +56,8 @@ export class Route {
         k, fi, name: st.n, sid: st.sid, style: st, c,
         stop: c + STOP_OFFSET, p0: c - PLATFORM_LEN / 2, p1: c + PLATFORM_LEN / 2,
         deep: !!st.deep, level: stationLevel(st),
+        // нестандартный поперечник (боковые платформы, кросс-платформенный зал, 3–4 пути …)
+        lay: stationLayout(line.id, st.n, dir),
       };
     });
     const byName = Object.fromEntries(fwd.map((s, i) => [s.n, i]));
@@ -90,16 +93,26 @@ export class Route {
     }
     // на открытом участке у станции с островной платформой встречный путь отходит на ширину платформы
     for (const o of this.polyZones) {
-      const isl = this.stations.filter((st) => st.c > o.s0 && st.c < o.s1 && st.style.t !== 'side' && st.style.t !== 'bridge');
+      // встречный путь у станции: по раскладке (если она есть) или островная платформа шириной 10 м
+      const oppOf = (st) => {
+        const L = st.lay;
+        if (!L || !L.tr) return -12.96;
+        const rev = L.tr.find((t) => t[1] === 'rev');
+        if (rev) return rev[0] < 0 ? rev[0] : null;
+        const left = L.tr.filter((t) => t[0] < -0.5).sort((a, b) => b[0] - a[0])[0];
+        return left ? left[0] : null;
+      };
+      const isl = this.stations.filter((st) => st.c > o.s0 && st.c < o.s1 && st.style.t !== 'side' && st.style.t !== 'bridge' && oppOf(st) != null).map((st) => ({ c: st.c, X: oppOf(st) }));
       const base = o.oppX;
       if (!isl.length || (o.kind !== 'open' && o.kind !== 'gallery')) { o.oppAt = () => base; continue; }
-      const X = -12.96, B = 110;
+      const B = 110;
       o.oppAt = (s) => {
         let v = base;
         for (const st of isl) {
           const d = Math.abs(s - st.c) - HALL_HALF;
           const t = d <= 0 ? 0 : d >= B ? 1 : ease(d / B, 0.5);
-          v = Math.min(v, X + (base - X) * t);
+          const w = st.X + (base - st.X) * t;
+          v = st.X < base ? Math.min(v, w) : Math.max(v, w);
         }
         return v;
       };

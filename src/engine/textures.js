@@ -534,6 +534,7 @@ export function nameTexture(text, kind = 'metal', bg = null) {
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     t.userData.aspect = W / H;
     t.userData.transparent = kind === 'metal';
+    t.userData.text = true;
     return t;
   });
 }
@@ -557,6 +558,7 @@ export function signTexture(lines, { bg = '#1f2733', fg = '#ffffff', w = 512, h 
     lines.forEach((l, i) => ctx.fillText(l, x0, h / 2 + (i - (lines.length - 1) / 2) * (fs + 6)));
     const t = canvasTex(c, { aniso: 8 });
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    t.userData.text = true;
     return t;
   });
 }

@@ -2,7 +2,7 @@ import json, re, sys
 sys.path.insert(0, 'tools')
 prep = json.load(open(sys.argv[1])); pages = json.load(open(sys.argv[2]))
 from wikifetch_vars import variants, LN
-NUM = {'ln5': ['5'], 'ln7': ['7'], 'ln8': ['8', '8А', '8A'], 'ln9': ['9'], 'ln10': ['10'], 'ln11': ['11', '11А'], 'ln12': ['12'], 'ln15': ['15'], 'ln17': ['17', '18']}
+NUM = {'ln1': ['1'], 'ln2': ['2'], 'ln3': ['3'], 'ln4': ['4', '4А', '4A'], 'ln6': ['6'], 'ln16': ['16'], 'ln5': ['5'], 'ln7': ['7'], 'ln8': ['8', '8А', '8A'], 'ln9': ['9'], 'ln10': ['10'], 'ln11': ['11', '11А'], 'ln12': ['12'], 'ln15': ['15'], 'ln17': ['17', '18']}
 def ok(wt, ln):
     if 'Московский метрополитен' not in wt and 'ММ|' not in wt: return False
     m = re.findall(r'\|\s*Линия\d?\s*=\s*\{\{ММ\|([0-9]+[АA]?)', wt)

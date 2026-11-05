@@ -1,7 +1,7 @@
 import { transfersFor, arrivalText, departText, TERMINAL_TEXT } from './engine/announce.js';
 // Ядро игры: сцена, подгрузка мира по ходу движения, физика поезда, станции, камеры.
 import * as THREE from 'three';
-import { Route, FORK_FIX } from './engine/route.js';
+import { Route, FORK_FIX, HALL_HALF } from './engine/route.js';
 import { buildTunnelChunk, buildTransitionRing } from './engine/tunnel.js';
 import { buildStation, buildStationSteps } from './engine/station.js';
 import { buildOutdoorChunk, buildOutdoorEnvSteps, buildPortal, buildSky } from './engine/outdoor.js';
@@ -809,18 +809,36 @@ export class Game {
     const ready = Object.values(this.ambientPool).filter((t) => !busy.has(t));
     if (!ready.length || this.ambients.some((a) => a.k === k)) return false;
     const R = this.route, st = R.stations[k];
+    // нестандартный зал: встречный путь нашей линии может быть в соседнем зале (кросс-платформенные
+    // станции) — тогда вместо встречного через платформу подходит поезд другой линии в ту же сторону
+    const L = st.lay && st.lay.tr ? st.lay : null;
+    const revT = L ? L.tr.find((x) => x[1] === 'rev') : null;
+    const othT = L ? L.tr.find((x) => x[1] === 'oth') : null;
+    let same = false, x = null;
+    if (L) {
+      if (othT && (!revT || this.rng() < 0.5)) { same = true; x = othT[0]; }
+      else if (revT) x = revT[0];
+      else return false;
+    }
+    const platSide = (tx) => {
+      // сторона платформы у пути tx (в системе нашего поезда): +1 справа, −1 слева
+      const pl = L.pl.find((p) => Math.abs(p[0] - (tx + 1.48)) < 0.1) ? 1 : L.pl.find((p) => Math.abs(p[1] - (tx - 1.48)) < 0.1) ? -1 : 0;
+      return pl;
+    };
     const tr = ready[Math.floor(this.rng() * ready.length)];
-    tr.setDestination(R.stations[0].name);
+    tr.setDestination(same ? LINES[othT[2]]?.stations.at(-1).n || R.stations[0].name : R.stations[0].name);
     tr.setEnv(this.defaultEnv, 1);
     tr.setDoors(0, -1);
     tr.group.visible = true;
     this.crowd.attachAmbient(tr);
     const arriving = this.rng() < 0.6;
-    const side = st.style.t === 'side' ? 1 : -1;
+    // двери: у встречного «право/лево» обратные нашим
+    let side = st.style.t === 'side' ? 1 : -1;
+    if (L) { const ps = platSide(x) || -1; side = same ? ps : -ps; }
     // стоящий — отправится, пока мы на станции; идущий — подойдёт примерно вместе с нами
     const dwell = eta + 12 + this.rng() * 18;
     const dist = clamp(eta * (10 + this.rng() * 6), 350, 1300);
-    const a = { train: tr, st, k, side, z: arriving ? 78 - dist : 78, v: arriving ? 16 : 0, state: arriving ? 'arrive' : 'dwell', t: dwell, t0: dwell };
+    const a = { train: tr, st, k, side, same, x, z: arriving ? 78 - dist : 78, v: arriving ? 16 : 0, state: arriving ? 'arrive' : 'dwell', t: dwell, t0: dwell };
     this.ambients.push(a);
     this._ambientOne(a, 0);
     return true;
@@ -831,6 +849,8 @@ export class Game {
     const R = this.route;
     const z = R.polyZones.find((o) => s >= o.s0 && s <= o.s1);
     if (z && z.oppAt) return z.oppAt(s);
+    const rv = st.lay && st.lay.tr && st.lay.tr.find((x) => x[1] === 'rev');
+    if (rv && Math.abs(s - st.c) < HALL_HALF + 150) return rv[0];
     const t = st.style.t;
     if (t === 'side') return -4.6;
     const W = t === 'pylon' || t === 'cold' ? 19 : t === 'bridge' ? 14 : 10;
@@ -882,10 +902,17 @@ export class Game {
     const inFork = (x) => !!(F && Al && Al.side < 0 && (x - F.J) * F.sg > -5 && (x - F.J) * F.sg < FORK_FIX + 10);
     a.train.placeSections((sc) => {
       const zc = a.z - sc.off - sc.Lb / 2;
+      if (a.same) {
+        // поезд другой линии в ту же сторону — виден только в зале станции (дальше — свой тоннель)
+        const s = a.st.c + zc;
+        sc.group.visible = Math.abs(zc) < HALL_HALF - 2 && s > 0 && s < R.length;
+        return R.matrixAt(Math.max(0, Math.min(R.length, s)), new THREE.Matrix4()).multiply(_tmpM.makeTranslation(a.x, 0, 0));
+      }
       const s = a.st.c - zc;
       sc.group.visible = Math.abs(zc) < 1600 && s > 0 && s < R.length && !inFork(s);
+      const x = a.x != null && Math.abs(s - a.st.c) < HALL_HALF + 150 ? a.x : this._oppXAt(s, a.st);
       const m = R.matrixAt(Math.max(0, Math.min(R.length, s)), new THREE.Matrix4());
-      return m.multiply(_tmpM.makeTranslation(this._oppXAt(s, a.st), 0, 0)).multiply(flip);
+      return m.multiply(_tmpM.makeTranslation(x, 0, 0)).multiply(flip);
     });
   }
 
