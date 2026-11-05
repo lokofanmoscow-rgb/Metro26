@@ -296,7 +296,20 @@ export class Crowd {
   }
 
   _render() {
-    const n = Math.min(this.people.length, this.cap);
+    // рисуем только видимых: без пассажиров своего поезда при виде из кабины (их закрывает стенка),
+    // без людей в скрытых секциях и дальше 110 м от камеры
+    const cam = this.camPos, own = this.hideOwn ? this.train : null, wv = this._wv || (this._wv = new THREE.Vector3());
+    const vis = [];
+    for (const p of this.people) {
+      if (p.frame === 'car') {
+        if (own && p.train === own) continue;
+        const sc = p.train && p.train.sections[p.sec];
+        if (!sc || !sc.group.visible || !p.train.group.visible) continue;
+        if (cam) { wv.set(p.x, 1.2, p.z).applyMatrix4(sc.group.matrix); if (wv.distanceToSquared(cam) > 110 * 110) continue; }
+      } else if (cam && this.matrix) { wv.set(p.x, 1.2, p.z).applyMatrix4(this.matrix); if (wv.distanceToSquared(cam) > 110 * 110) continue; }
+      vis.push(p);
+    }
+    const n = Math.min(vis.length, this.cap);
     for (const m of Object.values(this.meshes)) m.count = n * m.userData.count;
     const ms = this.meshes;
     const B = this.B, M = this.M, q = this.q, e = this.e, v = this.v, sc3 = this.s;
@@ -310,7 +323,7 @@ export class Crowd {
     const TT = this.TT || (this.TT = new THREE.Matrix4()), RZ = this.RZ || (this.RZ = new THREE.Matrix4()), SC = this.SC || (this.SC = new THREE.Matrix4());
     const tr = (x, y, z) => TT.makeTranslation(x, y, z);
     for (let i = 0; i < n; i++) {
-      const p = this.people[i];
+      const p = vis[i];
       let parent;
       let hide = false;
       if (p.frame === 'car') {

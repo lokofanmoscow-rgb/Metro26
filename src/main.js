@@ -33,6 +33,34 @@ let game = null;
 let map = null;
 let inGame = false;
 let hudOn = true;
+const hudCache = {};
+function hudUpdate(s, T, P, C) {
+    T('hudSpeed', String(Math.round(s.speed)));
+    T('hudLim', String(s.limit));
+    C('hudArs', 'ars' + (s.overspeed ? ' over' : !s.free && s.limit < 80 ? ' low' : ''));
+    { const v = s.free ? 'МАКС' : 'АРС'; if (hudCache.arsLbl !== v) { hudCache.arsLbl = v; $('hudArs').querySelector('.lbl').textContent = v; } }
+    P('hudTr1', 'width', `${Math.round(s.traction * 100)}%`);
+    P('hudBr1', 'width', `${Math.round(s.brake * 100)}%`);
+    T('hudDoors', s.doorsClosed ? 'ДВЕРИ ЗАКРЫТЫ' : 'ДВЕРИ ОТКРЫТЫ');
+    C('hudDoors', 'doors' + (s.doorsClosed ? '' : ' open'));
+    T('hudScore', String(s.score));
+    T('hudTime', s.time);
+    T('hudNext', s.station ? `стоянка: ${s.station}` : (s.next || '—'));
+    T('hudLine', s.line.num); P('hudLine', 'background', s.line.color);
+    T('hudDir', `${s.line.name} → ${s.dirTo}`);
+    const trs = s.station ? [] : s.nextTransfers;
+    { const html = trs.map((t) => `<span class="tr"><span class="dot" style="background:${t.line.color}"></span>${t.station}</span>`).join(''); if (hudCache.tr !== html) { hudCache.tr = html; $('hudTr').innerHTML = html; } }
+    const st = $('hudStop');
+    if (s.nearStop && s.dist != null && !s.station && s.dist > -15) {
+      C('hudStop', 'hud-stop' + (s.dist < -0.5 ? ' over' : ''));
+      const m = s.dist;
+      T('hudStopTxt', m >= 0 ? 'До остановочной отметки' : 'Проезд отметки');
+      T('hudStopM', `${Math.abs(m) < 10 ? Math.abs(m).toFixed(1) : Math.round(Math.abs(m))} м`);
+      P('hudStopFill', 'width', `${Math.max(0, Math.min(100, Math.round(100 - m / 4.5)))}%`);
+    } else C('hudStop', 'hud-stop hidden');
+    if (!$('mapPanel').classList.contains('hidden')) updateMapTrain(false);
+  }
+
 let lastHud = null;
 
 // подтверждение внутри страницы (системные диалоги в просмотрщике недоступны)
@@ -66,32 +94,11 @@ const ui = {
   },
   onHud(s) {
     lastHud = s;
-    $('hudSpeed').textContent = Math.round(s.speed);
-    $('hudLim').textContent = s.limit;
-    $('hudArs').className = 'ars' + (s.overspeed ? ' over' : !s.free && s.limit < 80 ? ' low' : '');
-    $('hudArs').querySelector('.lbl').textContent = s.free ? 'МАКС' : 'АРС';
-    $('hudTr1').style.width = `${s.traction * 100}%`;
-    $('hudBr1').style.width = `${s.brake * 100}%`;
-    const d = $('hudDoors');
-    d.textContent = s.doorsClosed ? 'ДВЕРИ ЗАКРЫТЫ' : 'ДВЕРИ ОТКРЫТЫ';
-    d.className = 'doors' + (s.doorsClosed ? '' : ' open');
-    $('hudScore').textContent = s.score;
-    $('hudTime').textContent = s.time;
-    $('hudNext').textContent = s.station ? `стоянка: ${s.station}` : (s.next || '—');
-    $('hudLine').textContent = s.line.num; $('hudLine').style.background = s.line.color;
-    $('hudDir').textContent = `${s.line.name} → ${s.dirTo}`;
-    const trs = s.station ? [] : s.nextTransfers;
-    $('hudTr').innerHTML = trs.map((t) => `<span class="tr"><span class="dot" style="background:${t.line.color}"></span>${t.station}</span>`).join('');
-    const st = $('hudStop');
-    if (s.nearStop && s.dist != null && !s.station && s.dist > -15) {
-      st.classList.remove('hidden');
-      const m = s.dist;
-      $('hudStopTxt').textContent = m >= 0 ? 'До остановочной отметки' : 'Проезд отметки';
-      $('hudStopM').textContent = `${Math.abs(m) < 10 ? Math.abs(m).toFixed(1) : Math.round(Math.abs(m))} м`;
-      $('hudStopFill').style.width = `${Math.max(0, Math.min(100, 100 - m / 4.5))}%`;
-      st.classList.toggle('over', m < -0.5);
-    } else st.classList.add('hidden');
-    if (!$('mapPanel').classList.contains('hidden')) updateMapTrain(false);
+    // в DOM пишем только изменившееся (каждая запись — перерасчёт и перерисовка панелей)
+    const T = (id, v) => { const k = 't:' + id; if (hudCache[k] !== v) { hudCache[k] = v; $(id).textContent = v; } };
+    const P = (id, prop, v) => { const k = id + ':' + prop; if (hudCache[k] !== v) { hudCache[k] = v; $(id).style[prop] = v; } };
+    const C = (id, v) => { const k = 'c:' + id; if (hudCache[k] !== v) { hudCache[k] = v; $(id).className = v; } };
+    return hudUpdate(s, T, P, C);
   },
   onFinish(data) {
     const st = data.stats;

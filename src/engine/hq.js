@@ -33,6 +33,24 @@ export function loadHQ() {
 
 export function initHQ(renderer) { HQ.renderer = renderer; }
 
+// прогрев: построить детальные станции «вхолостую», чтобы тяжёлые текстуры (мрамор на видеокарте,
+// перекраска фото-текстур) были готовы до поездки, а не генерировались при подъезде к станции
+export function warmHQ(build, stations) {
+  if (!HQ.ready || !HQ.renderer) return 0;
+  let n = 0;
+  for (const st of stations) {
+    if (!st.style.hq || HQ.warmed?.has(st.style.hq)) continue;
+    try {
+      const b = build(st);
+      b.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+      if (b.info.reflector && b.info.reflector.dispose) b.info.reflector.dispose();
+      (HQ.warmed || (HQ.warmed = new Set())).add(st.style.hq);
+      n++;
+    } catch (e) { console.warn('warm', e); }
+  }
+  return n;
+}
+
 function shared(t) { t.userData.shared = true; return t; }
 
 function texFromCanvas(c, { srgb = true, aniso = 8 } = {}) {
@@ -1032,6 +1050,40 @@ function buildNovomosk(grp, c) {
 export { letterTex, seamTex };
 
 export const HQ_BUILDERS = { kv: buildKV, krop: buildKrop, koms: buildKoms, kolom: buildKolom, babush: buildBabush, novomosk: buildNovomosk };
+
+// то же по шагам: одна грань куба за кадр, затем свёртка PMREM (без длинной паузы в игре)
+export function* captureEnvSteps(renderer, scene, built) {
+  const g = built.group;
+  const refl = built.info.reflector;
+  const rt = new THREE.WebGLCubeRenderTarget(128, { type: THREE.HalfFloatType });
+  const cam = new THREE.CubeCamera(0.1, 400, rt);
+  cam.position.copy(new THREE.Vector3((built.info.platform.x0 + built.info.platform.x1) / 2, 3.2, 0).applyMatrix4(g.matrixWorld));
+  cam.updateMatrixWorld(true);
+  cam.coordinateSystem = renderer.coordinateSystem;
+  if (cam.updateCoordinateSystem) cam.updateCoordinateSystem();
+  const mats = [];
+  g.traverse((o) => { const m = o.material; if (m && m.userData && m.userData.hq && m.emissive) mats.push([m, m.emissive.clone()]); });
+  for (let face = 0; face < 6; face++) {
+    const prevRT = renderer.getRenderTarget(), tm = renderer.toneMapping, rv = refl ? refl.visible : false;
+    if (refl) refl.visible = false;
+    for (const [m] of mats) m.emissive.multiplyScalar(2.0);
+    renderer.toneMapping = THREE.NoToneMapping;
+    rt.texture.generateMipmaps = false;
+    renderer.setRenderTarget(rt, face);
+    renderer.render(scene, cam.children[face]);
+    renderer.setRenderTarget(prevRT);
+    renderer.toneMapping = tm;
+    for (const [m, e] of mats) m.emissive.copy(e);
+    if (refl) refl.visible = rv;
+    yield;
+  }
+  const pm = new THREE.PMREMGenerator(renderer);
+  const env = pm.fromCubemap(rt.texture).texture;
+  pm.dispose(); rt.dispose();
+  g.traverse((o) => { const m = o.material; if (m && m.isMeshStandardMaterial) { m.envMap = env; m.needsUpdate = true; } });
+  built.info.env = env;
+  if (refl) refl.visible = HQ.fx;
+}
 
 // карта окружения станции для отражений и рассеянного света (снимается один раз после постройки)
 export function captureEnv(renderer, scene, built) {

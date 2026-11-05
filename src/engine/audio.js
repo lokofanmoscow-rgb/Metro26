@@ -327,6 +327,9 @@ export class Sound {
     return p;
   }
 
+  // заранее раскодировать записи (чтобы при въезде на станцию только запустить звук)
+  prefetch(texts) { if (!this.ctx) return; for (const t of texts) if (VOICE[t]) this._clip(t); }
+
   _pa() {
     // вагонный громкоговоритель: полоса 250–4000 Гц, лёгкая компрессия и отражения салона
     if (this.paIn) return this.paIn;

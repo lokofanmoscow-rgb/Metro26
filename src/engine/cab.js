@@ -241,7 +241,7 @@ function cab717(grp, P) {
   const t2 = mk(0.5, 0.2, -0.05, 0.37, (x, W) => { label(x, 'ЛАМПЫ АРС', W / 2, 24); ['ОЧ', '0', '40', '60', '70', '80'].forEach((t, i) => label(x, t, 46 + i * 62, 140, 16)); });
   const t3 = mk(0.42, 0.2, 0.43, 0.37, (x, W) => { label(x, 'ТМ        НМ', W / 2, 24); });
   // скоростемер (живой) — на правом нижнем блоке
-  const spd = tex(512, 512, () => {});
+  const spd = tex(320, 320, (x) => x.setTransform(320 / 512, 0, 0, 320 / 512, 0, 0));
   const spdCanvas = spd.image;
   const sp = new THREE.Mesh(new THREE.CircleGeometry(0.085, 40), new THREE.MeshBasicMaterial({ map: spd }));
   sp.position.set(-0.06, -0.01, 0.012); b3.add(sp);
@@ -329,7 +329,12 @@ function cab717(grp, P) {
 // =====================================================================
 // 81-775 «Москва-2020»: центральный пост
 // =====================================================================
-function screenTex(w, h) { const t = tex(w, h, (x) => { x.fillStyle = '#05080c'; x.fillRect(0, 0, w, h); }); return t; }
+function screenTex(w, h, k = 0.6) {
+  // холст меньше (k), рисуем в исходных координатах через масштаб
+  const t = tex(Math.round(w * k), Math.round(h * k), (x, W, H) => { x.fillStyle = '#05080c'; x.fillRect(0, 0, W, H); });
+  t.image.getContext('2d').setTransform(k, 0, 0, k, 0, 0);
+  return t;
+}
 function cab775(grp, P) {
   const desk = std(0xd9dcde, 0.45, 0.05);
   const black = std(0x15171a, 0.25, 0.3);
@@ -510,6 +515,7 @@ function cab740(grp, P) {
       x.fillText(s.time || '', 12, 178);
       bup.needsUpdate = true;
       for (const m of [m2]) {
+        if (m.drawn) continue; m.drawn = true; // картинка камеры статична
         x = m.t.image.getContext('2d');
         const g = x.createLinearGradient(0, 0, 0, 190); g.addColorStop(0, '#3a4046'); g.addColorStop(1, '#1a1d20');
         x.fillStyle = g; x.fillRect(0, 0, 256, 190);
@@ -540,4 +546,10 @@ export function buildCab(type) {
   };
 }
 
-export function drawPanel(cab, s) { if (cab.update) cab.update(s); }
+export function drawPanel(cab, s) {
+  if (!cab.update) return;
+  const sig = [Math.round(s.speed), s.limit, s.dist != null ? Math.round(s.dist) : '', s.doorsClosed, s.traction > 0.05, s.brake > 0.05, s.overspeed, s.next, s.time].join('|');
+  if (sig === cab._sig) return;
+  cab._sig = sig;
+  cab.update(s);
+}

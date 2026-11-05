@@ -3,13 +3,13 @@ import { transfersFor, arrivalText, departText, TERMINAL_TEXT } from './engine/a
 import * as THREE from 'three';
 import { Route } from './engine/route.js';
 import { buildTunnelChunk, buildTransitionRing } from './engine/tunnel.js';
-import { buildStation } from './engine/station.js';
+import { buildStation, buildStationSteps } from './engine/station.js';
 import { buildOutdoorChunk, buildOutdoorEnv, buildPortal, buildSky } from './engine/outdoor.js';
 import { Train, drawPanel } from './engine/train.js';
 import { Crowd } from './engine/people.js';
 import { Sound } from './engine/audio.js';
 import { releaseTextures } from './engine/textures.js';
-import { HQ, initHQ, captureEnv } from './engine/hq.js';
+import { HQ, initHQ, captureEnv, captureEnvSteps, warmHQ } from './engine/hq.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -129,6 +129,8 @@ export class Game {
     this.trainId = train;
     this.route = new Route(this.line, dir, { shortSpans: this.settings.short });
     const R = this.route;
+    // тяжёлые текстуры детальных станций — сразу при старте рейса, а не при подъезде к станции
+    if (!showroom) warmHQ((st) => buildStation(R, st, LINES[line]), R.stations);
     const first = R.stations[0];
     const last = R.stations[R.stations.length - 1];
     if (this.train) { this.scene.remove(this.train.group); this.train.dispose(); }
@@ -191,11 +193,14 @@ export class Game {
 
   _clearWorld() {
     for (const [, it] of this.loaded) this._unloadItem(it);
+    this.pending = []; this.envJobs = [];
     this.loaded.clear();
     this._hideAmbient();
   }
 
   _unloadItem(it) {
+    it.cancelled = true;
+    if (!it.obj) return; // станция ещё строилась — бросаем постройку
     this.scene.remove(it.obj);
     if (it.built && it.built.info) {
       if (it.built.info.reflector && it.built.info.reflector.dispose) it.built.info.reflector.dispose();
@@ -241,11 +246,13 @@ export class Game {
     const R = this.route;
     let obj = null;
     if (it.kind === 'st') {
+      // станция строится по частям в следующих кадрах (см. _advanceBuilds)
       const st = R.stations[it.k];
-      const built = buildStation(R, st, this.line);
-      obj = built.group;
-      it.st = st; it.built = built;
+      it.st = st; it.gen = buildStationSteps(R, st, this.line);
       if (!this.intervals.has(it.k)) this.intervals.set(it.k, 40 + this.rng() * 100);
+      this.loaded.set(key, it);
+      (this.pending || (this.pending = [])).push(it);
+      return;
     } else if (it.kind === 'tu') obj = buildTunnelChunk(R, it.a, it.b, it.deep);
     else if (it.kind === 'od') obj = buildOutdoorChunk(R, it.a, it.b, it.zone);
     else if (it.kind === 'env') obj = buildOutdoorEnv(R, it.zone);
@@ -255,27 +262,59 @@ export class Game {
     it.obj = obj;
     this.scene.add(obj);
     this.loaded.set(key, it);
-    // детальные станции: снимаем карту окружения для отражений мрамора и рассеянного света
-    if (it.kind === 'st' && it.built.info.hq) { try { captureEnv(this.renderer, this.scene, it.built); } catch (e) { console.warn('env', e); } }
+
+  }
+
+  // продолжение построек станций и съёмки отражений: не дольше budget мс за кадр
+  _advanceBuilds(sync, budget = 5) {
+    const t0 = performance.now();
+    const q = this.pending || [];
+    while (q.length && (sync || performance.now() - t0 < budget)) {
+      const it = q[0];
+      if (it.cancelled) { q.shift(); continue; }
+      let r;
+      try { r = it.gen.next(); } catch (e) { console.warn('station', e); q.shift(); continue; }
+      if (!r.done) continue;
+      q.shift();
+      it.built = r.value; it.obj = r.value.group;
+      this.scene.add(it.obj);
+      // детальные станции: карта окружения для отражений — по одной грани куба за кадр
+      if (it.built.info.hq) {
+        if (sync) { try { captureEnv(this.renderer, this.scene, it.built); } catch (e) { console.warn('env', e); } }
+        else (this.envJobs || (this.envJobs = [])).push({ it, gen: captureEnvSteps(this.renderer, this.scene, it.built) });
+      }
+    }
+    const ej = this.envJobs || [];
+    while (ej.length && (sync || performance.now() - t0 < budget + 3)) {
+      const j = ej[0];
+      if (j.it.cancelled) { j.gen.return(); ej.shift(); continue; }
+      let r;
+      try { r = j.gen.next(); } catch (e) { console.warn('env', e); ej.shift(); continue; }
+      if (r.done) ej.shift();
+      if (!sync) break; // одна грань за кадр
+    }
   }
 
   _stream(sync = false) {
+    this._advanceBuilds(sync);
     const { need, lo, hi } = this._needed();
     for (const [k, it] of this.loaded) {
       if (!need.has(k) && (it.b < lo - 150 || it.a > hi + 150 || sync)) { this._unloadItem(it); this.loaded.delete(k); }
     }
     const todo = [...need].filter(([k]) => !this.loaded.has(k));
-    if (!todo.length) return;
-    const s = this.s;
-    todo.sort((x, y) => {
-      const dx = Math.max(0, x[1].a - s, s - x[1].b - 160), dy = Math.max(0, y[1].a - s, s - y[1].b - 160);
-      return dx - dy;
-    });
-    const t0 = performance.now();
-    for (const [k, it] of todo) {
-      this._build(k, it);
-      if (!sync && performance.now() - t0 > 10) break;
+    if (todo.length) {
+      const s = this.s;
+      todo.sort((x, y) => {
+        const dx = Math.max(0, x[1].a - s, s - x[1].b - 160), dy = Math.max(0, y[1].a - s, s - y[1].b - 160);
+        return dx - dy;
+      });
+      const t0 = performance.now();
+      for (const [k, it] of todo) {
+        this._build(k, it);
+        if (!sync && performance.now() - t0 > 6) break;
+      }
     }
+    if (sync) this._advanceBuilds(true);
   }
 
   _stationObj(k) { return this.loaded.get('st:' + k)?.built || null; }
@@ -490,6 +529,7 @@ export class Game {
     if (!this.route) { this.renderer.render(this.scene, this.camera); return; }
     if (this.mode === 'drive' && !this.paused) this._sim(dt);
     if (this.mode === 'menu') this._menuTick(dt);
+    this.crowd.camPos = this.camera.position; this.crowd.hideOwn = this.view.mode === 'cab';
     if (!this.paused) this.crowd.update(dt);
     this._ambientTrain(this.paused ? 0 : dt);
     this._camera(dt);
@@ -587,7 +627,7 @@ export class Game {
       cars: def.cars, time: clockStr(this.gameTime),
     };
     this._panelT = (this._panelT || 0) - dt;
-    if (this._panelT <= 0 && this.train.cab.group.visible) { drawPanel(this.train.cab, st); this._panelT = 0.1; }
+    if (this._panelT <= 0 && this.train.cab.group.visible) { drawPanel(this.train.cab, st); this._panelT = 0.2; }
     // рукоятка контроллера
     const ctrl = this.train.cab.ctrl;
     const pos = this.traction - Math.max(this.brake, autoBr);
@@ -610,7 +650,7 @@ export class Game {
     // интервальные часы
     for (const [k, iv] of this.intervals) this.intervals.set(k, iv + dt);
     for (const [, it] of this.loaded) {
-      if (it.kind !== 'st') continue;
+      if (it.kind !== 'st' || !it.built) continue;
       const info = it.built.info;
       if (info.clock) info.clock.draw(this.gameTime % 86400, this.intervals.get(it.k) || 0);
       if (info.signal) info.signal.set(!(this.atStation === it.k && this.doorTarget === 1));
@@ -618,6 +658,11 @@ export class Game {
     // подготовка толпы на приближающейся станции
     const nk = R.nextStationIndex(this.s);
     const nst = R.stations[nk];
+    if (nst && this._prefetchK !== nk && nst.stop - this.s < 700) {
+      this._prefetchK = nk;
+      const nn = R.stations[nk + 1];
+      this.sound.prefetch([arrivalText(nst.name, nst.sid), TERMINAL_TEXT, ...(nn ? [departText(nn.name)] : [])]);
+    }
     if (nst && this._crowdStation !== nk && nst.stop - this.s < 500 && this.doorTarget === 0) {
       const o = this._stationObj(nk);
       if (o) this._prepareCrowd({ st: nst, obj: o }, false);

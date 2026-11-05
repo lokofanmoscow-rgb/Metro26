@@ -210,8 +210,17 @@ function nameBoards(grp, style, x, facing, y, zs, scale = 1) {
   grp.add(new THREE.Mesh(mergeGeoms(gs), m));
 }
 
+// Станция строится по частям (генератор): поток подгрузки продолжает постройку в следующих
+// кадрах, чтобы тяжёлая станция не останавливала игру на десятки и сотни миллисекунд.
 export function buildStation(route, st, line) {
-  if (st.style.t === 'side') return buildSideStation(route, st, line);
+  const g = buildStationSteps(route, st, line);
+  let r;
+  do { r = g.next(); } while (!r.done);
+  return r.value;
+}
+
+export function* buildStationSteps(route, st, line) {
+  if (st.style.t === 'side') { yield; return buildSideStation(route, st, line); }
   const style = st.style;
   const grp = new THREE.Group();
   grp.name = 'station:' + st.name;
@@ -236,15 +245,20 @@ export function buildStation(route, st, line) {
   const leftWall = oppX - (rightWall);
 
   const wallH = (t === 'pylon' || t === 'cold') ? 4.2 - (BED_Y - 0.4) : (t === 'vault' ? 3.4 - (BED_Y - 0.4) : yC - (BED_Y - 0.4));
+  yield;
   const wTex = wallTexture(style, Math.round(wallH * 10) / 10, 2.1);
+  yield;
   const wallMat = style.wp === 'glass'
     ? new THREE.MeshLambertMaterial({ color: style.w, transparent: true, opacity: 0.28, emissive: 0x223333, side: THREE.DoubleSide, depthWrite: false })
     : mat(wTex, 0.5);
   const floorMat = mat(floorTexture(style), 0.45);
+  yield;
   const ceilMat = mat(ceilingTexture(style), 0.55, { side: THREE.DoubleSide });
+  yield;
   const darkMat = new THREE.MeshLambertMaterial({ color: 0x2a2826 });
   const edgeMat = new THREE.MeshLambertMaterial({ color: 0xd8d6cf, emissive: 0x3a3a38 });
 
+  yield; // постройка по частям: следующий кусок — в следующем кадре
   // пути
   straightTrack(grp, 0, -HZ, HZ);
   straightTrack(grp, oppX, -HZ, HZ);
@@ -263,6 +277,7 @@ export function buildStation(route, st, line) {
   // тактильная полоса на новых станциях
   if (style.y >= 2010) grp.add(new THREE.Mesh(mergeGeoms([planeY(PLAT_Y + 0.005, EDGE_X - 0.95, EDGE_X - 0.6, -PL, PL, true, 1, 1), planeY(PLAT_Y + 0.005, xFar + 0.6, xFar + 0.95, -PL, PL, true, 1, 1)]), new THREE.MeshLambertMaterial({ color: 0xe8c22a, emissive: 0x3a3008 })));
 
+  yield; // постройка по частям: следующий кусок — в следующем кадре
   // путевые стены
   if (t !== 'ground' && t !== 'bridge' && !hq) {
     const top = (t === 'pylon' || t === 'cold') ? 4.2 : t === 'vault' ? 3.4 : yC;
@@ -273,7 +288,9 @@ export function buildStation(route, st, line) {
   const lampsP = [];
   const lampGeom = { strip: new THREE.BoxGeometry(0.25, 0.05, 2.6), ball: new THREE.SphereGeometry(0.28, 12, 8), led: new THREE.BoxGeometry(0.12, 0.04, 6) };
 
+  yield; // постройка по частям: следующий кусок — в следующем кадре
   if (hq) hq(grp, { PLAT_Y, EDGE_X, xFar, oppX, rightWall, leftWall, PL, HZ, BED_Y, info, style, yC });
+  yield;
 
   if (!hq && (t === 'col' || t === 'span' || t === 'ground' || t === 'bridge')) {
     // потолок
@@ -332,6 +349,7 @@ export function buildStation(route, st, line) {
     if (t !== 'col') for (let z = -PL + 10; z < PL; z += 16) info.spots.push({ x: xm, z });
   }
 
+  yield; // постройка по частям: следующий кусок — в следующем кадре
   if (!hq && (t === 'pylon' || t === 'cold')) {
     // боковые залы — своды
     const xPy0 = -4.3, xPy1 = -7.0; // пилоны со стороны нашего пути
@@ -394,6 +412,7 @@ export function buildStation(route, st, line) {
     grp.add(new THREE.Mesh(mergeGeoms(bench), new THREE.MeshLambertMaterial({ color: 0x5a3d28 })));
   }
 
+  yield; // постройка по частям: следующий кусок — в следующем кадре
   if (!hq && t === 'vault') {
     const xc = (rightWall + leftWall) / 2, rx = (rightWall - leftWall) / 2;
     const v = arc(xc, 3.4, rx, 4.6, 0, Math.PI, 36);
@@ -415,6 +434,7 @@ export function buildStation(route, st, line) {
     for (let z = -PL + 10; z < PL; z += 14) info.spots.push({ x: xc, z });
   }
 
+  yield; // постройка по частям: следующий кусок — в следующем кадре
   // торцевые стены с проёмами тоннелей
   if (t !== 'ground' && t !== 'bridge') {
     const topY = Math.max((t === 'pylon' || t === 'cold') ? 9.5 : t === 'vault' ? 8.2 : yC, hq && info.ceilY ? info.ceilY + 0.3 : 0);
@@ -504,6 +524,7 @@ export function buildStation(route, st, line) {
     for (const zz of [-PL, PL]) info.exits.push({ x: (EDGE_X + xFar) / 2, z: zz + (zz < 0 ? 3 : -3), y: PLAT_Y });
   }
 
+  yield; // постройка по частям: следующий кусок — в следующем кадре
   // название станции на путевых стенах
   const nameY = t === 'vault' ? 2.6 : 2.7;
   const zs = [];
@@ -512,6 +533,7 @@ export function buildStation(route, st, line) {
     nameBoards(grp, style, rightWall, -1, nameY, zs);
     nameBoards(grp, style, leftWall, 1, nameY, zs);
   }
+  yield; // постройка по частям: следующий кусок — в следующем кадре
   // подвесные указатели над краем платформы
   const sTex = signTexture([st.name], { bg: '#1f2733', w: 1024, h: 128, line });
   const signMat = new THREE.MeshBasicMaterial({ map: sTex });
