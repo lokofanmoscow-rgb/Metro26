@@ -49,7 +49,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         s.setSupportZoom(false);
         s.setBuiltInZoomControls(false);
         s.setTextZoom(100);
-        web.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        // без промежуточного аппаратного слоя: WebGL выводится напрямую (меньше копирований кадра)
+        web.setLayerType(View.LAYER_TYPE_NONE, null);
+        // высокий приоритет процесса отрисовки, чтобы система не замедляла его
+        if (Build.VERSION.SDK_INT >= 26) web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         web.setWebViewClient(new WebViewClient());
         web.setWebChromeClient(new WebChromeClient());
         web.addJavascriptInterface(bridge, "AndroidTTS");

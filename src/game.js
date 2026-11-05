@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { Route } from './engine/route.js';
 import { buildTunnelChunk, buildTransitionRing } from './engine/tunnel.js';
 import { buildStation, buildStationSteps } from './engine/station.js';
-import { buildOutdoorChunk, buildOutdoorEnv, buildPortal, buildSky } from './engine/outdoor.js';
+import { buildOutdoorChunk, buildOutdoorEnvSteps, buildPortal, buildSky } from './engine/outdoor.js';
 import { Train, drawPanel } from './engine/train.js';
 import { Crowd } from './engine/people.js';
 import { Sound } from './engine/audio.js';
@@ -39,7 +39,8 @@ export class Game {
     initHQ(this.renderer);
     // нейтральная «студийная» карта окружения для лакированных кузовов вне детальных станций
     const pm = new THREE.PMREMGenerator(this.renderer);
-    this.defaultEnv = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.defaultEnv = pm.fromScene(new RoomEnvironment(), 0.04, 0.1, 100, { size: 128 }).texture;
+    HQ.defaultEnv = this.defaultEnv;
     pm.dispose();
     this.hemi = new THREE.HemisphereLight(0xfff4e2, 0x4a4238, 0.2);
     this.scene.add(this.hemi);
@@ -170,6 +171,8 @@ export class Game {
     this.view.mode = showroom ? 'menu' : 'cab';
     this.view.yaw = 0; this.view.pitch = -0.08;
     this.train.cab.group.visible = !showroom;
+    // все материалы стартовой сцены (включая скрытые: кабина, небо, отражения) — компилируем сразу
+    if (!showroom) this._precompile(this.scene);
     if (state?.doorsOpen) { this.doorF = 1; this.doorTarget = 1; this.train.setDoors(1, this._doorSide()); }
     // на старте — посадка на первой станции
     const stNow = this._stationNear();
@@ -255,14 +258,41 @@ export class Game {
       return;
     } else if (it.kind === 'tu') obj = buildTunnelChunk(R, it.a, it.b, it.deep);
     else if (it.kind === 'od') obj = buildOutdoorChunk(R, it.a, it.b, it.zone);
-    else if (it.kind === 'env') obj = buildOutdoorEnv(R, it.zone);
+    else if (it.kind === 'env') {
+      // окружение улицы — тоже по частям
+      it.gen = buildOutdoorEnvSteps(R, it.zone);
+      this.loaded.set(key, it);
+      (this.pending || (this.pending = [])).push(it);
+      return;
+    }
     else if (it.kind === 'po') obj = buildPortal(R, it.at, it.fwd, it.zone);
     else if (it.kind === 'tr') obj = buildTransitionRing(R, it.at);
     if (!obj) return;
     it.obj = obj;
     this.scene.add(obj);
     this.loaded.set(key, it);
+    if (this.mode === 'drive' && it.kind !== 'tu') { const vis = obj.visible; obj.visible = false; this._precompile(obj, () => { if (this.loaded.get(key) === it) obj.visible = vis; }); }
 
+  }
+
+  // предварительная компиляция шейдеров объекта (чтобы не было паузы при первом появлении в кадре).
+  // Скрытые части (отражения, небо) на время компиляции включаются.
+  _precompile(obj, onDone = null) {
+    const r = this.renderer;
+    const hidden = [];
+    obj.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+    const restore = () => { for (const o of hidden) o.visible = false; };
+    try {
+      if (r.compileAsync && onDone) {
+        const p = r.compileAsync(obj, this.camera, this.scene);
+        restore();
+        p.then(onDone, onDone);
+        return;
+      }
+      r.compile(obj, this.camera, this.scene);
+    } catch (e) { console.warn('compile', e); }
+    restore();
+    if (onDone) onDone();
   }
 
   // продолжение построек станций и съёмки отражений: не дольше budget мс за кадр
@@ -276,8 +306,18 @@ export class Game {
       try { r = it.gen.next(); } catch (e) { console.warn('station', e); q.shift(); continue; }
       if (!r.done) continue;
       q.shift();
+      if (it.kind !== 'st') {
+        it.obj = r.value;
+        if (!it.obj) continue;
+        this.scene.add(it.obj);
+        if (!sync) { const o = it.obj; o.visible = false; this._precompile(o, () => { if (!it.cancelled) o.visible = true; }); }
+        continue;
+      }
       it.built = r.value; it.obj = r.value.group;
+      // материалы детальных станций сразу с картой окружения — при подмене на снятую шейдер тот же
+      if (it.built.info.hq) it.obj.traverse((o) => { const m = o.material; if (m && m.isMeshStandardMaterial && !m.envMap) m.envMap = this.defaultEnv; });
       this.scene.add(it.obj);
+      if (!sync) { it.obj.visible = false; const o = it.obj; this._precompile(o, () => { if (!it.cancelled) o.visible = true; }); }
       // детальные станции: карта окружения для отражений — по одной грани куба за кадр
       if (it.built.info.hq) {
         if (sync) { try { captureEnv(this.renderer, this.scene, it.built); } catch (e) { console.warn('env', e); } }
@@ -524,8 +564,28 @@ export class Game {
   }
 
   // ---------- кадр ----------
+  // адаптивное разрешение: если кадры дольше ~24 мс — уменьшаем, если быстрые — возвращаем
+  _adaptRes(raw) {
+    if (this.mode !== 'drive' || this.paused || raw > 0.25) return;
+    this._ft = this._ft == null ? raw : this._ft * 0.95 + raw * 0.05;
+    this._adT = (this._adT || 0) + raw;
+    if (this._adT < 2) return;
+    this._adT = 0;
+    const cap = Math.min(window.devicePixelRatio || 1, this.settings.quality);
+    const pr = this.renderer.getPixelRatio();
+    let np = pr;
+    if (this._ft > 0.024 && pr > 0.7) np = Math.max(0.7, pr - 0.15);
+    else if (this._ft < 0.0145 && pr < cap) np = Math.min(cap, pr + 0.1);
+    if (Math.abs(np - pr) > 0.01) {
+      this.renderer.setPixelRatio(np);
+      if (this.composer) { this.composer.setPixelRatio(np); this.composer.setSize(window.innerWidth, window.innerHeight); }
+    }
+  }
+
   _frame() {
-    const dt = Math.min(0.05, this.clock.getDelta());
+    const raw = this.clock.getDelta();
+    this._adaptRes(raw);
+    const dt = Math.min(0.05, raw);
     if (!this.route) { this.renderer.render(this.scene, this.camera); return; }
     if (this.mode === 'drive' && !this.paused) this._sim(dt);
     if (this.mode === 'menu') this._menuTick(dt);
@@ -706,10 +766,11 @@ export class Game {
       const t = types.find((x) => !this.ambientPool[x]);
       if (!t) return;
       if (this.mode === 'drive' && this.v > 3) { this._warmT = setTimeout(next, 1500); return; }
-      const tr = new Train(TRAINS[t], '');
-      tr.cab.group.visible = false;
-      tr.group.visible = false;
+      const tr = new Train(TRAINS[t], '', { ambient: true });
       this.scene.add(tr.group);
+      tr.setEnv(this.defaultEnv, 1);
+      this._precompile(tr.group);
+      tr.group.visible = false;
       this.ambientPool[t] = tr;
       this._warmT = setTimeout(next, 400);
     };
@@ -853,6 +914,7 @@ export class Game {
       });
     } else this.pool.forEach((l) => { l.intensity = 0; });
     this.train.head.intensity = od ? 2 : 5;
+    if (this.train.cab.light) this.train.cab.light.intensity = this.view.mode === 'cab' ? 1.7 : 0;
     // отражения на кузове: карта детальной станции или нейтральная
     const envSt = o && bd < 200 && o.info.env;
     this.train.setEnv(envSt || this.defaultEnv, envSt ? 1 : (od ? 1 : lerp(0.25, 0.8, inSt)));

@@ -291,9 +291,15 @@ const PALETTE = [
 
 // Выдавливание контуров зданий. ground(x, z) — высота рельефа: здания стоят на земле, а не над ней.
 function buildBuildings(list, groundY, ground) {
+  const g = buildBuildingsSteps(list, groundY, ground); let r; do { r = g.next(); } while (!r.done); return r.value;
+}
+
+function* buildBuildingsSteps(list, groundY, ground) {
   const walls = [[], [], [], [], [], []], roofs = [], parapets = [];
   const tmp = new THREE.Color(), white = new THREE.Color('#ffffff');
+  let bi = 0;
   for (const b of list) {
+    if (++bi % 200 === 0) yield;
     const [h, mh0, kind0] = b;
     const col = b[3];
     let ring = [];
@@ -608,7 +614,12 @@ function msu(area, groundY) {
 
 // Окружение участка в OSM-кадре; matrix — перевод в мир. cut(x,z,y) — понижение рельефа (под путь)
 // corridor: { index, halfW (половина ширины выемки), clearB, clearT, cutAt(sData) }
-export function buildOsmEnv(id, matrix, { cut = null, maxTrees = 6000, corridor = null } = {}) {
+export function buildOsmEnv(id, matrix, opts = {}) {
+  const g = buildOsmEnvSteps(id, matrix, opts); let r; do { r = g.next(); } while (!r.done); return r.value;
+}
+
+// по частям: фильтр, рельеф, здания (порциями), деревья — чтобы не останавливать игру
+export function* buildOsmEnvSteps(id, matrix, { cut = null, maxTrees = 6000, corridor = null } = {}) {
   const area = OSM[id];
   const d = area.data;
   const g = new THREE.Group();
@@ -623,10 +634,13 @@ export function buildOsmEnv(id, matrix, { cut = null, maxTrees = 6000, corridor 
     for (let i = 0; i < trees.length; i += 2) if (!ix.near(trees[i] / 10, trees[i + 1] / 10, corridor.clearT)) tr.push(trees[i], trees[i + 1]);
     trees = tr;
   }
+  yield;
   const terr = buildTerrain(area, GROUND_Y, cut, corridor);
   g.add(terr);
+  yield;
   const H = terr.userData.height;
-  g.add(buildBuildings(blds, GROUND_Y, H));
+  g.add(yield* buildBuildingsSteps(blds, GROUND_Y, H));
+  yield;
   const t = buildTrees(trees, GROUND_Y, maxTrees, H);
   if (t) g.add(t);
   const rb = buildRoadBridges(d.roadBridges, GROUND_Y);

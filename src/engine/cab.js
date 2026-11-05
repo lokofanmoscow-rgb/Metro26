@@ -178,8 +178,7 @@ function shell(grp, type, P) {
   grp.add(new THREE.Mesh(cylGeom(0.03, 0.03, 0.08, 10, 1.12, FLOOR_Y + 0.64, ZB - 0.18), std(0x222222, 0.4, 0.5)));
   const light = new THREE.PointLight(0xffe8c8, 1.7, 4.2, 1.5);
   light.position.set(P.eyeX, 3.05, 1.3);
-  grp.add(light);
-  return { wiper };
+  return { wiper, light };
 }
 
 // кресло машиниста
@@ -537,11 +536,11 @@ const PRESETS = {
 export function buildCab(type) {
   const grp = new THREE.Group();
   const P = PRESETS[type] || PRESETS['717'];
-  const { wiper } = shell(grp, type, P);
+  const { wiper, light } = shell(grp, type, P);
   const inner = type === '775' ? cab775(grp, P) : type === '740' ? cab740(grp, P) : cab717(grp, P);
   bakeStatic(grp, [...inner.keep, wiper]);
   return {
-    group: grp, ctrl: inner.ctrl, wiper, type, isNew: type !== '717', update: inner.update,
+    group: grp, ctrl: inner.ctrl, wiper, light, type, isNew: type !== '717', update: inner.update,
     eye: new THREE.Vector3(P.eyeX, FLOOR_Y + 1.32, P.eyeZ ?? 1.6),
   };
 }

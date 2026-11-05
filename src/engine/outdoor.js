@@ -5,7 +5,7 @@ import { buildTrack, sharedMats, TUBE_R, TUBE_CY, BED_Y } from './tunnel.js';
 import { grassTexture, ballastTexture, buildingTexture, concreteTexture } from './textures.js';
 import { mergeGeoms, boxGeom, cylGeom, mulberry32, hashStr } from './util.js';
 import { HALL_HALF, BRIDGE_RISE } from './route.js';
-import { buildOsmEnv, corridorIndex, GROUND_Y } from './osm.js';
+import { buildOsmEnv, buildOsmEnvSteps, corridorIndex, GROUND_Y } from './osm.js';
 
 const OPP_X = -12.96;
 
@@ -170,7 +170,14 @@ function osmPortal(route, s, facingForward, ox, hill = false) {
 }
 
 // Окружение всего открытого участка (строится один раз на зону)
-export function buildOutdoorEnv(route, zone) {
+// по шагам (генератор) — для подгрузки без рывков
+export function* buildOutdoorEnvSteps(route, zone) {
+  const r = buildOutdoorEnv(route, zone, true);
+  if (r && typeof r.next === 'function') return yield* r;
+  return r;
+}
+
+export function buildOutdoorEnv(route, zone, steps = false) {
   const Z = zone.zone || {};
   if (Z.osm && Z.envMatrix) {
     // реальное окружение; здания и деревья у самой трассы убираем (их заменяют наши сооружения)
@@ -194,6 +201,7 @@ export function buildOutdoorEnv(route, zone) {
       for (let x = a0; x <= a1; x += 10) { route.frameAt(x, f); const p = f.pos.clone().applyMatrix4(inv); extra.push([p.x, p.z]); }
     }
     corridor.extra = extra;
+    if (steps) return buildOsmEnvSteps(Z.osm, Z.envMatrix, { corridor });
     return buildOsmEnv(Z.osm, Z.envMatrix, { corridor });
   }
   const grp = new THREE.Group();

@@ -508,8 +508,9 @@ function doorLeafTexture(type) {
 }
 
 export class Train {
-  constructor(def, dest = '') {
+  constructor(def, dest = '', { ambient = false } = {}) {
     this.def = def;
+    this.ambient = ambient;
     this.type = def.id;
     this.group = new THREE.Group();
     this.sections = [];
@@ -626,18 +627,24 @@ export class Train {
     this.leafGlass.renderOrder = 3;
     this.leafMesh.frustumCulled = this.leafGlass.frustumCulled = false;
     this.group.add(this.leafMesh, this.leafGlass);
-    // фары
-    this.head = new THREE.SpotLight(0xfff2d8, 5, 160, 0.3, 0.7, 0.9);
-    this.head.position.set(0, 1.3, -this.sections[0].Lb / 2 - 0.1);
-    this.head.target.position.set(0, 0.6, -this.sections[0].Lb / 2 - 60);
-    this.sections[0].group.add(this.head, this.head.target);
-    this.headGlow = new THREE.PointLight(0xfff2d8, 0.8, 9, 1.6);
-    this.headGlow.position.set(0, 1.4, -this.sections[0].Lb / 2 - 1.5);
-    this.sections[0].group.add(this.headGlow);
-    this.cab = buildCab(this.type);
-    this.cab.group.position.z = -this.sections[0].Lb / 2;
-    this.sections[0].group.add(this.cab.group);
-    this.cab.group.visible = false;
+    // фары и кабина — только у поезда игрока. У встречных поездов нет источников света:
+    // их появление/исчезновение меняло бы число источников в сцене, и все шейдеры
+    // перекомпилировались бы (заметный рывок на станции)
+    if (!ambient) {
+      this.head = new THREE.SpotLight(0xfff2d8, 5, 160, 0.3, 0.7, 0.9);
+      this.head.position.set(0, 1.3, -this.sections[0].Lb / 2 - 0.1);
+      this.head.target.position.set(0, 0.6, -this.sections[0].Lb / 2 - 60);
+      this.sections[0].group.add(this.head, this.head.target);
+      this.headGlow = new THREE.PointLight(0xfff2d8, 0.8, 9, 1.6);
+      this.headGlow.position.set(0, 1.4, -this.sections[0].Lb / 2 - 1.5);
+      this.sections[0].group.add(this.headGlow);
+      this.cab = buildCab(this.type);
+      this.cab.group.position.z = -this.sections[0].Lb / 2;
+      this.sections[0].group.add(this.cab.group);
+      this.cab.group.visible = false;
+      // лампа кабины остаётся в сцене всегда (вид снаружи — гасится яркостью)
+      if (this.cab.light) { this.cab.light.position.z += this.cab.group.position.z; this.sections[0].group.add(this.cab.light); }
+    }
     this.doorOpen = 0; this.doorSide = -1;
     this._tmpM = new THREE.Matrix4(); this._tmpL = new THREE.Matrix4();
   }
