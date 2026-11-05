@@ -788,6 +788,11 @@ export class Game {
     this.scene.fog.color.copy(fc);
     this.scene.background.copy(outF ? fc : new THREE.Color(0x020202));
     this.sky.visible = !!od || R.outdoor.some((o) => Math.abs(s - o.s0) < 600 || Math.abs(s - o.s1) < 600);
+    // окружение улицы видно только снаружи и у самого портала: из глубины тоннеля его не видно,
+    // а рельеф и дома над тоннелем не должны попадать внутрь
+    for (const it of this.loaded.values()) {
+      if (it.kind === 'env' && it.obj) it.obj.visible = s > it.zone.s0 - 35 && s < it.zone.s1 + 35;
+    }
     this.sky.position.copy(this.camera.position);
     // пул точечных источников — на ближайшей станции
     const o = best ? this._stationObj(best.k) : null;

@@ -16,6 +16,7 @@ AREAS = {
   # zone: ось пути между порталами (две линии путей, порталы задаются точками на оси)
   'nag': dict(line='Замоскворецкая линия', anchor='Технопарк', zone=True, portals=[(-273, -913), (86, 1082)], spacing=4.6),
   'luzh': dict(line='Сокольническая линия', anchor='Воробьёвы горы', zone=True, portals=None, spacing=None),
+  'sal': dict(line='Сокольническая линия', anchor='Филатов Луг', zone=True, portals=None, spacing=None, px=2.4),
   # focus — точка (широта, долгота) внутри открытого участка, если станция-якорь вне его
   'preo': dict(line='Сокольническая линия', anchor='Преображенская площадь', zone=True, portals=None, spacing=None, focus=(55.7966, 37.7016)),
   'myak': dict(line='Арбатско-Покровская линия', anchor='Мякинино', zone=True, portals=None, spacing=None),
@@ -103,6 +104,8 @@ def smooth(pts, n=3):
 
 
 def build(area, cfg):
+    global PX
+    PX = cfg.get('px', 1.6)  # большие участки — с меньшим разрешением карты местности
     nodes, ways, rels = load(area, OSM_DIR)
     lats = [v[0] for v in nodes.values()]; lons = [v[1] for v in nodes.values()]
     # границы — по квадратам загрузки (узлы путей выходят за них)

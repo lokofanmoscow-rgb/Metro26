@@ -67,7 +67,7 @@ function buildings(route, s0, s1, rng, step) {
 // Портал тоннеля: стенка с проёмом и насыпь/склон над тоннелем
 export function buildPortal(route, s, facingForward, cut) {
   const Z = cut.zone || {};
-  if (Z.osm && Z.kind === 'open') return osmPortal(route, s, facingForward, Z.oppX, Z.pd <= 0.5);
+  if (Z.osm && (Z.kind === 'open' || Z.kind === 'gallery')) return osmPortal(route, s, facingForward, Z.oppX, Z.pd <= 0.5);
   const kind = cut.out, ox = Z.oppX ?? OPP_X;
   const grp = new THREE.Group();
   const sh = new THREE.Shape();
@@ -86,7 +86,7 @@ export function buildPortal(route, s, facingForward, cut) {
   const hide = new THREE.MeshBasicMaterial({ visible: false });
   const mats = [gm, gm, gm, gm, gm, gm];
   mats[dir > 0 ? 5 : 4] = hide;
-  grp.add(new THREE.Mesh(boxGeom(W + 30, 23, 60, ox / 2, -2.5, dir * 30.1), mats));
+  grp.add(new THREE.Mesh(boxGeom(W + 30, 23, 150, ox / 2, -2.5, dir * 75.1), mats));
   // встречный тоннель: тёмный тюбинг за проёмом
   const dark = new THREE.MeshLambertMaterial({ color: 0x24221f, side: THREE.DoubleSide });
   grp.add(new THREE.Mesh(new THREE.CylinderGeometry(TUBE_R, TUBE_R, 60, 24, 1, true).rotateX(Math.PI / 2).translate(ox, TUBE_CY, dir * 30), dark));
@@ -144,7 +144,7 @@ function osmPortal(route, s, facingForward, ox, hill = false) {
     gm.map.repeat.set(8, 8);
     const mats = [gm, gm, gm, gm, gm, gm];
     mats[dir > 0 ? 5 : 4] = new THREE.MeshBasicMaterial({ visible: false });
-    const hb = new THREE.Mesh(boxGeom(X1 - X0 + 16, 21, 70, (X0 + X1) / 2, gy + 10.5 - 4, dir * 35.05), mats);
+    const hb = new THREE.Mesh(boxGeom(X1 - X0 + 16, 21, 150, (X0 + X1) / 2, gy + 10.5 - 4, dir * 75.05), mats);
     hb.applyMatrix4(route.matrixAt(s, new THREE.Matrix4(), true));
     grp.userData.hill = hb;
   }
@@ -165,7 +165,7 @@ export function buildOutdoorEnv(route, zone) {
     const L = index.L;
     // s оси в данных OSM → s трассы
     const toRoute = (sd) => Z.s0 + (Z.rev ? L - sd : sd);
-    const open = Z.kind === 'open';
+    const open = Z.kind === 'open' || Z.kind === 'gallery';
     const corridor = {
       index,
       halfW: 3.6 - (Z.oppX ?? OPP_X) / 2,
@@ -173,6 +173,14 @@ export function buildOutdoorEnv(route, zone) {
       clearT: open ? 9 : 14,
       cutAt: (sd) => open && route.y(toRoute(sd)) < GROUND_Y + 0.75,
     };
+    // путь тоннеля за порталами в OSM-кадре: здания над насыпью портала убираем
+    const inv = Z.envMatrix.clone().invert();
+    const extra = [];
+    const f = {};
+    for (const [a0, a1] of [[Z.s0 - 170, Z.s0], [Z.s1, Z.s1 + 170]]) {
+      for (let x = a0; x <= a1; x += 10) { route.frameAt(x, f); const p = f.pos.clone().applyMatrix4(inv); extra.push([p.x, p.z]); }
+    }
+    corridor.extra = extra;
     return buildOsmEnv(Z.osm, Z.envMatrix, { corridor });
   }
   const grp = new THREE.Group();
@@ -280,7 +288,7 @@ export function buildOutdoorChunk(route, s0, s1, zone) {
   }
   if (a < s1) parts.push([a, s1]);
   const bridge = zone.out === 'bridge';
-  if (Z.osm && Z.kind === 'open') {
+  if (Z.osm && (Z.kind === 'open' || Z.kind === 'gallery')) {
     // реальный открытый участок: насыпь/выемка или метромост — по данным OSM
     const br = (Z.brEff || []).map(([x, y]) => [Z.s0 + x, Z.s0 + y]);
     for (const [p0, p1] of parts) {
@@ -296,7 +304,8 @@ export function buildOutdoorChunk(route, s0, s1, zone) {
         const varies = Math.abs(OF(u) - OX) > 0.01 || Math.abs(OF(v) - OX) > 0.01 || Math.abs(OF((u + v) / 2) - OX) > 0.01;
         grp.add(buildTrack(route, u, v, { bed: false }));
         grp.add(oppTrack(route, u, v, varies ? OF : OX));
-        grp.add(onBridge ? openBridge(route, u, v, Math.min(OF(u), OF(v), OF((u + v) / 2))) : embankment(route, u, v, varies ? OF : OX));
+        grp.add(onBridge ? openBridge(route, u, v, Math.min(OF(u), OF(v), OF((u + v) / 2))) : embankment(route, u, v, varies ? OF : OX, Z.kind === 'gallery'));
+        if (Z.kind === 'gallery') grp.add(groundGallery(route, u, v, OF));
       }
     }
     return grp;
@@ -355,7 +364,7 @@ function ribbon(route, s0, s1, step, fn, uScale = 2) {
 }
 
 // Насыпь (путь выше земли) или выемка с подпорными стенками (рампа к порталу)
-function embankment(route, s0, s1, OXv) {
+function embankment(route, s0, s1, OXv, bare = false) {
   const grp = new THREE.Group();
   const O = typeof OXv === 'function' ? OXv : () => OXv;
   const bal = new THREE.MeshLambertMaterial({ map: ballastTexture(), side: THREE.DoubleSide });
@@ -384,6 +393,7 @@ function embankment(route, s0, s1, OXv) {
       ribbon(route, s0, s1, 4, (s) => [[WL(s) - 0.35, Math.min(top(s), gy(s) + 0.05)], [WL(s) - 0.35, top(s)], [WL(s), top(s)], [WL(s), -0.65]], 3),
     ]), conc));
   }
+  if (bare) return grp;
   // ограждение полосы отвода по бровке
   const post = new THREE.MeshLambertMaterial({ color: 0x4a4c4a });
   const fx = (s) => (cutH(s) > 0.05 ? wr + 1.2 : xr + 1.5 + slope(s));
@@ -399,6 +409,34 @@ function embankment(route, s0, s1, OXv) {
   const lampM = new THREE.MeshLambertMaterial({ color: 0x6b6e70 });
   const lamps = instancesAlong(route, s0, s1, 40, mergeGeoms([cylGeom(0.08, 0.11, 7, 6, 0, 3.5, 0), boxGeom(1.2, 0.12, 0.12, -0.6, 7, 0)]), lampM, (s) => [{ x: fx(s) - 0.4, y: fy(s) }]);
   if (lamps) grp.add(lamps);
+  return grp;
+}
+
+// Наземный короб-тоннель с ленточным остеклением (юг Сокольнической линии): цоколь, окна, перекрытие
+function groundGallery(route, s0, s1, OF) {
+  const grp = new THREE.Group();
+  const conc = new THREE.MeshLambertMaterial({ map: concreteTexture('#a7a39a'), side: THREE.DoubleSide });
+  const glass = new THREE.MeshLambertMaterial({ color: 0xa9c9d2, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false, emissive: 0x203030 });
+  const XR = 3.0, XL = (s) => OF(s) - 3.0, W0 = 1.0, W1 = 3.9, TOP = 5.1;
+  grp.add(new THREE.Mesh(mergeGeoms([
+    ribbon(route, s0, s1, 4, () => [[XR, GROUND_Y - 0.2], [XR, W0]], 3),
+    ribbon(route, s0, s1, 4, (s) => [[XL(s), W0], [XL(s), GROUND_Y - 0.2]], 3),
+    ribbon(route, s0, s1, 4, () => [[XR, W1], [XR, TOP]], 3),
+    ribbon(route, s0, s1, 4, (s) => [[XL(s), TOP], [XL(s), W1]], 3),
+    ribbon(route, s0, s1, 4, (s) => [[XL(s) - 0.5, TOP + 0.35], [XR + 0.5, TOP + 0.35]], 3),
+    ribbon(route, s0, s1, 4, (s) => [[XR + 0.5, TOP + 0.35], [XR + 0.5, TOP - 0.1], [XR, TOP - 0.1]], 3),
+    ribbon(route, s0, s1, 4, (s) => [[XL(s), TOP - 0.1], [XL(s) - 0.5, TOP - 0.1], [XL(s) - 0.5, TOP + 0.35]], 3),
+    ribbon(route, s0, s1, 4, (s) => [[XR, TOP - 0.1], [XL(s), TOP - 0.1]], 3),
+  ]), conc));
+  grp.add(new THREE.Mesh(mergeGeoms([
+    ribbon(route, s0, s1, 6, () => [[XR, W0], [XR, W1]]),
+    ribbon(route, s0, s1, 6, (s) => [[XL(s), W0], [XL(s), W1]]),
+  ]), glass));
+  const frame = new THREE.MeshLambertMaterial({ color: 0x5f6466 });
+  const mull = instancesAlong(route, s0, s1, 3, new THREE.BoxGeometry(0.16, W1 - W0, 0.16).translate(0, (W0 + W1) / 2, 0), frame, (s) => [{ x: XR, y: 0 }, { x: XL(s), y: 0 }]);
+  if (mull) grp.add(mull);
+  const lamp = instancesAlong(route, s0, s1, 9, new THREE.BoxGeometry(0.3, 0.05, 2.4), new THREE.MeshBasicMaterial({ color: 0xfff4dc }), (s) => [{ x: 0, y: TOP - 0.15 }, { x: OF(s), y: TOP - 0.15 }]);
+  if (lamp) grp.add(lamp);
   return grp;
 }
 

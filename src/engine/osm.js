@@ -21,6 +21,9 @@ import kuncW from '../assets/osm/kunc_water.png';
 import izm from '../assets/osm/izm.json';
 import izmG from '../assets/osm/izm_ground.jpg';
 import izmW from '../assets/osm/izm_water.png';
+import sal from '../assets/osm/sal.json';
+import salG from '../assets/osm/sal_ground.jpg';
+import salW from '../assets/osm/sal_water.png';
 import luzhW from '../assets/osm/luzh_water.png';
 
 export const OSM = {
@@ -30,6 +33,7 @@ export const OSM = {
   myak: { data: myak, ground: myakG, water: myakW },
   kunc: { data: kunc, ground: kuncG, water: kuncW },
   izm: { data: izm, ground: izmG, water: izmW },
+  sal: { data: sal, ground: salG, water: salW },
 };
 
 // Сглаживание оси участка: в данных OSM встречаются изломы (стыки путей), а в метро радиусы
@@ -379,7 +383,8 @@ function buildBuildings(list, groundY, ground) {
 // Рельеф: сетка с понижением в русле реки по маске воды
 function buildTerrain(area, groundY, cut, cor) {
   const d = area.data, b = d.bounds, tex = d.tex;
-  const step = 10;
+  // шаг сетки рельефа: на больших участках крупнее (не больше ~60 тыс. узлов)
+  const step = Math.max(10, Math.round(Math.sqrt((b[2] - b[0]) * (b[3] - b[1]) / 60000)));
   const nx = Math.ceil((b[2] - b[0]) / step) + 1, nz = Math.ceil((b[3] - b[1]) / step) + 1;
   const wm = area.waterMask;
   const wAt = (x, z) => {
@@ -611,7 +616,9 @@ export function buildOsmEnv(id, matrix, { cut = null, maxTrees = 6000, corridor 
   if (corridor) {
     const ix = corridor.index;
     corridor.isCut = (x, z, R) => { const q = ix.near(x, z, R); return !!q && q.s > 0.5 && q.s < ix.L - 0.5 && corridor.cutAt(q.s); };
-    blds = blds.filter((b) => { for (let i = 4; i < b.length; i += 2) if (ix.near(b[i] / 10, b[i + 1] / 10, corridor.clearB)) return false; return true; });
+    const ex = corridor.extra || [];
+    const nearEx = (x, z, R) => ex.some((p) => Math.abs(p[0] - x) < R && Math.abs(p[1] - z) < R && Math.hypot(p[0] - x, p[1] - z) < R);
+    blds = blds.filter((b) => { for (let i = 4; i < b.length; i += 2) { const x = b[i] / 10, z = b[i + 1] / 10; if (ix.near(x, z, corridor.clearB) || nearEx(x, z, 30)) return false; } return true; });
     const tr = [];
     for (let i = 0; i < trees.length; i += 2) if (!ix.near(trees[i] / 10, trees[i + 1] / 10, corridor.clearT)) tr.push(trees[i], trees[i + 1]);
     trees = tr;

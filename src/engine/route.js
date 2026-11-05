@@ -61,7 +61,7 @@ export class Route {
         const poly = trackPolyline(o.osm, !!o.rev !== (dir === 1));
         const c = toRoute(cf[byName[o.anchor]]);
         const s0 = c - poly.station;
-        return { s0, s1: s0 + poly.length, kind: o.kind, osm: o.osm, poly, oppX: o.kind === 'open' ? -poly.spacing : -12.96, rev: !!o.rev !== (dir === 1), pd: o.portal ?? PORTAL_D, rise: o.rise ?? BRIDGE_RISE };
+        return { s0, s1: s0 + poly.length, kind: o.kind, osm: o.osm, poly, oppX: o.kind === 'open' || o.kind === 'gallery' ? -poly.spacing : -12.96, rev: !!o.rev !== (dir === 1), pd: o.portal ?? PORTAL_D, rise: o.rise ?? BRIDGE_RISE };
       }
       const a = toRoute(cf[byName[o.from[0]]] + o.from[1]);
       const b = toRoute(cf[byName[o.to[0]]] + o.to[1]);
@@ -72,7 +72,7 @@ export class Route {
     for (const o of this.polyZones) {
       const isl = this.stations.filter((st) => st.c > o.s0 && st.c < o.s1 && st.style.t !== 'side' && st.style.t !== 'bridge');
       const base = o.oppX;
-      if (!isl.length || o.kind !== 'open') { o.oppAt = () => base; continue; }
+      if (!isl.length || (o.kind !== 'open' && o.kind !== 'gallery')) { o.oppAt = () => base; continue; }
       const X = -12.96, B = 110;
       o.oppAt = (s) => {
         let v = base;
@@ -218,7 +218,8 @@ export class Route {
         const a = st[i].c + ZONE_HALF, b = st[i + 1].c - ZONE_HALF;
         const outs = this.outdoor.filter((o) => o.s1 > a && o.s0 < b);
         for (const o of outs) {
-          if (o.kind === 'open' && o.poly) { if (!done.has(o)) { done.add(o); this._openProfile(o, o.s0 > 1, o.s1 < this.length - 1, ctrl); } continue; }
+          if (!done.has(o) && o.poly) { done.add(o); this._buryBeyond(o, ctrl); }
+          if ((o.kind === 'open' || o.kind === 'gallery') && o.poly) { if (!done.has('p:' + o.s0)) { done.add('p:' + o.s0); this._openProfile(o, o.s0 > 1, o.s1 < this.length - 1, ctrl); } continue; }
           if (o.s0 > a) ctrl.push({ s: o.s0, y: 0, keep: true });
           if (o.s1 < b) ctrl.push({ s: o.s1, y: 0, keep: true });
         }
@@ -234,6 +235,17 @@ export class Route {
     for (let i = ctrl.length - 1; i > 0; i--) if (ctrl[i].s - ctrl[i - 1].s < 0.5) ctrl.splice(ctrl[i].keep ? i - 1 : i, 1);
     // убрать подземные точки внутри открытых участков
     this.yCtrl = ctrl.filter((p) => p.keep || !(inOut(p.s) && p.y !== 0));
+  }
+
+  // Портал на уровне земли: тоннель за ним быстро заглубляется (иначе он торчал бы из рельефа,
+  // а земля и дома реального окружения оказывались бы внутри тоннеля)
+  _buryBeyond(o, ctrl) {
+    const pd = o.kind === 'bridge' ? 0 : o.pd;
+    if (pd > 0.5) return;
+    const D = 190, Y = -6.4;
+    const free = (x) => x > 40 && x < this.length - 40 && this.stations.every((st) => Math.abs(x - st.c) > ZONE_HALF + 40);
+    if (o.s0 > 1 && free(o.s0 - D)) ctrl.push({ s: o.s0 - D, y: Y, keep: true });
+    if (o.s1 < this.length - 1 && free(o.s1 + D)) ctrl.push({ s: o.s1 + D, y: Y, keep: true });
   }
 
   // Профиль реального открытого участка: рампы от порталов, подъёмы на метромосты.
