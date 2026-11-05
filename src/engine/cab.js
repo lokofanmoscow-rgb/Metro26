@@ -293,7 +293,7 @@ function cab717(grp, P) {
   });
   const fp = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.7), new THREE.MeshStandardMaterial({ map: fuse, roughness: 0.6, metalness: 0.2 }));
   fp.position.set(-0.75, FLOOR_Y + 1.25, ZB - 0.03); fp.rotation.y = Math.PI; grp.add(fp);
-  seat(grp, -0.5, 1.85, std(0x6b3f2c, 0.7), std(0x2a2a2a, 0.4, 0.5));
+  seat(grp, -0.5, 1.4, std(0x6b3f2c, 0.7), std(0x2a2a2a, 0.4, 0.5));
   // радиостанция под потолком, переговорное устройство
   grp.add(new THREE.Mesh(boxGeom(0.34, 0.2, 0.22, 0.9, 3.08, 0.35), std(0x2c2f31, 0.5, 0.2)));
   grp.add(new THREE.Mesh(boxGeom(0.08, 0.16, 0.05, 0.75, 2.92, 0.48), std(0x111111, 0.5)));
@@ -356,23 +356,6 @@ function cab775(grp, P) {
     return t;
   };
   const sL = mkScreen(-0.46, 0.25), sC = mkScreen(0, 0), sR = mkScreen(0.46, -0.25);
-  // панели круглых кнопок с цветной подсветкой
-  const cols = [0xd0202c, 0x2aa84a, 0xe8c22a, 0x2a62b8, 0xf2f2f2];
-  const btnPanel = (x, z, ry, n, m) => {
-    const g = new THREE.Group();
-    g.add(new THREE.Mesh(boxGeom(0.04 + n * 0.042, 0.012, 0.04 + m * 0.042, 0, 0, 0), black));
-    const rng = mulberry32(n * 13 + m);
-    const byCol = new Map();
-    for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
-      const c = cols[Math.floor(rng() * cols.length)];
-      if (!byCol.has(c)) byCol.set(c, []);
-      byCol.get(c).push(cylGeom(0.015, 0.015, 0.014, 14, -n * 0.021 + 0.021 + i * 0.042, 0.012, -m * 0.021 + 0.021 + j * 0.042));
-    }
-    for (const [c, gs] of byCol) g.add(new THREE.Mesh(mergeGeoms(gs), new THREE.MeshStandardMaterial({ color: c, emissive: new THREE.Color(c).multiplyScalar(0.55), roughness: 0.3 })));
-    g.position.set(x, deskY + 0.03, z); g.rotation.y = ry;
-    grp.add(g);
-  };
-  btnPanel(-0.28, 0.6, 0.15, 5, 3); btnPanel(0.28, 0.6, -0.15, 5, 3); btnPanel(-0.82, 0.95, 0.4, 3, 4); btnPanel(0.82, 0.95, -0.4, 3, 4);
   // джойстик контроллера слева
   const ctrl = new THREE.Group();
   ctrl.add(new THREE.Mesh(cylGeom(0.018, 0.022, 0.2, 12, 0, 0.1, 0), black));
@@ -456,20 +439,12 @@ function cab740(grp, P) {
   upper.add(up);
   const lo = panelBlock(1.45, 0.42, 0.06, body, plateTex(1.45, 0.42, '#bfc2c3', (x, W, H) => { x.fillStyle = '#1b1b1b'; x.fillRect(W * 0.41, H * 0.18, W * 0.04, H * 0.62); x.fillStyle = '#333'; x.font = '700 16px Arial'; x.fillText('ХОД', W * 0.47, H * 0.25); x.fillText('ТОРМОЗ', W * 0.47, H * 0.78); }));
   lower.add(lo);
-  // ряды цветных кнопок и ламп на верхней панели
-  const cols = [0xd0202c, 0x2aa84a, 0xe8c22a, 0x2a62b8, 0xf2f2f2];
-  const r = mulberry32(17);
-  for (const [c, n] of cols.map((c) => [c, 6])) {
-    const list = [];
-    for (let i = 0; i < n; i++) list.push([-0.68 + r() * 0.36, -0.05 + r() * 0.1]);
-    for (let i = 0; i < n; i++) list.push([0.32 + r() * 0.36, -0.05 + r() * 0.1]);
-    place(up, PARTS.button(0.012), new THREE.MeshStandardMaterial({ color: c, emissive: new THREE.Color(c).multiplyScalar(0.45), roughness: 0.35 }), list);
-  }
   // красный цифровой скоростемер (живой)
-  const seg = tex(256, 96, (x) => { x.fillStyle = '#100404'; x.fillRect(0, 0, 256, 96); });
-  const segM = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.075), new THREE.MeshBasicMaterial({ map: seg }));
-  segM.position.set(-0.05, 0.0, 0.004); up.add(segM);
-  up.add(new THREE.Mesh(boxGeom(0.22, 0.09, 0.01, -0.05, 0, 0.0), dark));
+  // экран посередине: сколько метров до остановки
+  const seg = tex(512, 160, (x) => { x.fillStyle = '#100404'; x.fillRect(0, 0, 512, 160); });
+  const segM = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.106), new THREE.MeshBasicMaterial({ map: seg }));
+  segM.position.set(0, 0.0, 0.014); up.add(segM);
+  up.add(new THREE.Mesh(boxGeom(0.37, 0.13, 0.016, 0, 0, 0.002), dark));
   // кнопки и тумблеры на нижней панели, рычаг контроллера в прорези
   place(lo, PARTS.button(0.02), std(0x2aa84a, 0.35, 0, { emissive: 0x0a3a14 }), [[0.2, 0.08], [0.26, 0.08], [0.32, 0.08]]);
   place(lo, PARTS.button(0.02), std(0xd0202c, 0.35, 0, { emissive: 0x3a0808 }), [[0.2, 0.0], [0.26, 0.0], [0.32, 0.0]]);
@@ -507,9 +482,13 @@ function cab740(grp, P) {
     ctrl, keep: [ctrl, segM, bm, m1.g, m2.g, post],
     update(s) {
       let x = seg.image.getContext('2d');
-      x.fillStyle = '#100404'; x.fillRect(0, 0, 256, 96);
-      x.fillStyle = s.overspeed ? '#ff6a4a' : '#ff2a1a'; x.font = '700 74px "Courier New",monospace'; x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.fillText(String(Math.round(s.speed)).padStart(3, ' '), 128, 52);
+      x.fillStyle = '#100404'; x.fillRect(0, 0, 512, 160);
+      x.fillStyle = '#ff2a1a'; x.textBaseline = 'middle';
+      const dm = s.dist != null ? Math.max(0, Math.round(s.dist)) : null;
+      x.font = '700 104px "Courier New",monospace'; x.textAlign = 'right';
+      x.fillText(dm != null ? String(dm) : '----', 400, 86);
+      x.font = '700 46px "Courier New",monospace'; x.textAlign = 'left'; x.fillText('м', 412, 104);
+      x.font = '700 24px Arial'; x.fillStyle = '#9a2a1a'; x.textAlign = 'left'; x.fillText('ДО ОСТАНОВКИ', 14, 22);
       seg.needsUpdate = true;
       x = bup.image.getContext('2d');
       x.fillStyle = '#0b1a0b'; x.fillRect(0, 0, 384, 192);
@@ -533,7 +512,7 @@ function cab740(grp, P) {
 }
 
 const PRESETS = {
-  '717': { wall: 0xc3cbce, trim: 0x9aa4a8, ceil: 0xe2e4e2, floor: 0x37393b, door: 0xb9c1c4, front: 0x30353a, eyeX: -0.5, doorX: 0.55, sideWin: { y0: 1.95, y1: 2.9 }, ws: { y0: 1.98, y1: 2.98, pillars: [-0.83, 0.83] } },
+  '717': { eyeZ: 1.12, wall: 0xc3cbce, trim: 0x9aa4a8, ceil: 0xe2e4e2, floor: 0x37393b, door: 0xb9c1c4, front: 0x30353a, eyeX: -0.5, doorX: 0.55, sideWin: { y0: 1.95, y1: 2.9 }, ws: { y0: 1.98, y1: 2.98, pillars: [-0.83, 0.83] } },
   '775': { wall: 0xe3e5e6, trim: 0xb9bec2, ceil: 0xf0f1f1, floor: 0x3b3e41, door: 0xd2d6d9, front: 0x24272a, eyeX: 0, doorX: 0.7, sideWin: { y0: 1.75, y1: 3.0 }, ws: { y0: 1.62, y1: 3.15, pillars: [] } },
   '740': { wall: 0xdccfa9, trim: 0xb9ad8a, ceil: 0xebe4cf, floor: 0x3e4f4a, door: 0xd8cca8, front: 0x3a3d40, eyeX: -0.5, doorX: 0.55, sideWin: { y0: 1.95, y1: 2.9 }, ws: { y0: 1.85, y1: 2.98, pillars: [] } },
 };
@@ -546,7 +525,7 @@ export function buildCab(type) {
   bakeStatic(grp, [...inner.keep, wiper]);
   return {
     group: grp, ctrl: inner.ctrl, wiper, type, isNew: type !== '717', update: inner.update,
-    eye: new THREE.Vector3(P.eyeX, FLOOR_Y + 1.32, 1.6),
+    eye: new THREE.Vector3(P.eyeX, FLOOR_Y + 1.32, P.eyeZ ?? 1.6),
   };
 }
 
