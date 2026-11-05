@@ -181,7 +181,7 @@ button:focus-visible { outline: 2px solid #ffcf3a; outline-offset: 2px; }
   .hud-tl { top: calc(10px + env(safe-area-inset-top, 0px)); left: 10px; right: 10px; max-width: none; padding: 8px 10px; }
   .hud-tl .next { font-size: 15px; } .hud-tl .next b { font-size: 16px; }
   .hud-tl .route { font-size: 13px; }
-  .hud-tr { top: auto; bottom: calc(196px + env(safe-area-inset-bottom, 0px)); right: 10px; padding: 6px 10px; gap: 10px; }
+  .hud-tr { top: auto; bottom: calc(128px + env(safe-area-inset-bottom, 0px)); right: 10px; padding: 6px 10px; gap: 10px; }
   .hud-tr b { font-size: 15px; }
   .hud-stop { top: calc(96px + env(safe-area-inset-top, 0px)); min-width: 200px; padding: 6px 10px; }
   .hud-bl { bottom: calc(128px + env(safe-area-inset-bottom, 0px)); left: 10px; gap: 10px; padding: 8px 10px; }

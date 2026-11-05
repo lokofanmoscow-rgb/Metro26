@@ -396,22 +396,33 @@ function cab775(grp, P) {
       // правый экран: состояние вагонов (цветная сетка), следующая станция
       x = sR.image.getContext('2d');
       x.fillStyle = '#071019'; x.fillRect(0, 0, W, H);
-      x.fillStyle = '#59b8ff'; x.font = '700 24px Arial'; x.textAlign = 'left'; x.fillText('Следующая:', 18, 34);
-      x.fillStyle = '#fff'; x.font = '700 28px Arial'; const nmT = s.next || ''; x.fillText(nmT.length > 22 ? nmT.slice(0, 21) + '…' : nmT, 18, 70);
-      x.fillStyle = '#cfd6dd'; x.font = '700 24px Arial'; x.fillText(s.dist != null ? `до остановки ${Math.max(0, Math.round(s.dist))} м` : '', 18, 104);
+      x.fillStyle = '#59b8ff'; x.font = '700 24px Arial'; x.textAlign = 'left'; x.fillText('Следующая:', 18, 32);
+      // название — крупно, при необходимости в две строки
+      x.fillStyle = '#fff';
+      const nmT = s.next || '';
+      let fs = 50; x.font = `700 ${fs}px Arial`;
+      const words = nmT.split(' ');
+      let lines = [nmT];
+      if (x.measureText(nmT).width > W - 36 && words.length > 1) { const h = Math.ceil(words.length / 2); lines = [words.slice(0, h).join(' '), words.slice(h).join(' ')]; }
+      while (fs > 26 && lines.some((l) => x.measureText(l).width > W - 36)) { fs -= 2; x.font = `700 ${fs}px Arial`; }
+      lines.forEach((l, i) => x.fillText(l, 18, 82 + i * (fs + 4)));
       const n = s.cars || 8;
       for (let i = 0; i < n; i++) for (let j = 0; j < 6; j++) {
         x.fillStyle = j === 0 ? (s.doorsClosed ? '#2aa84a' : '#e8c22a') : (j === 3 && s.brake > 0.05) ? '#ff7a3a' : (j === 2 && s.traction > 0.05) ? '#3aa0ff' : '#1f6a3a';
         x.fillRect(18 + i * (476 / n), 130 + j * 36, 476 / n - 6, 30);
       }
       sR.needsUpdate = true;
-      // левый экран: камера видеонаблюдения за платформой (тёмная картинка с перспективой)
+      // левый экран: сколько метров осталось до остановки
       x = sL.image.getContext('2d');
-      const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#2b3036'); g.addColorStop(1, '#14171a');
-      x.fillStyle = g; x.fillRect(0, 0, W, H);
-      x.strokeStyle = 'rgba(220,230,240,0.35)'; x.lineWidth = 3;
-      for (let i = -4; i <= 4; i++) { x.beginPath(); x.moveTo(W / 2 + i * 12, 120); x.lineTo(W / 2 + i * 120, H); x.stroke(); }
-      x.fillStyle = '#e8eef2'; x.font = '700 20px Arial'; x.textAlign = 'left'; x.fillText('КАМ 1  ' + (s.time || ''), 12, 26);
+      x.fillStyle = '#071019'; x.fillRect(0, 0, W, H);
+      x.fillStyle = '#59b8ff'; x.font = '700 28px Arial'; x.textAlign = 'center'; x.fillText('До остановки', W / 2, 46);
+      const dm = s.dist != null ? Math.max(0, Math.round(s.dist)) : null;
+      x.fillStyle = dm != null && dm < 50 ? '#ffd23a' : '#ffffff'; x.font = '700 120px Arial'; x.textBaseline = 'middle'; x.fillText(dm != null ? String(dm) : '—', W / 2, 176);
+      x.font = '700 40px Arial'; x.fillStyle = '#cfd6dd'; x.fillText(dm == null ? '' : (dm % 10 === 1 && dm % 100 !== 11) ? 'метр' : ([2, 3, 4].includes(dm % 10) && ![12, 13, 14].includes(dm % 100)) ? 'метра' : 'метров', W / 2, 282);
+      x.textBaseline = 'alphabetic';
+      // полоска приближения к отметке «СТОП»
+      const frac = dm != null ? Math.max(0, Math.min(1, 1 - dm / 1500)) : 0;
+      x.fillStyle = '#1b2a38'; x.fillRect(40, 320, W - 80, 18); x.fillStyle = '#ff8a1e'; x.fillRect(40, 320, (W - 80) * frac, 18);
       sL.needsUpdate = true;
       gs[0].userData.set(0.5 + s.brake * 0.25); gs[2].userData.set(s.brake * 0.4);
     },
@@ -453,7 +464,7 @@ function cab740(grp, P) {
   const ctrl = new THREE.Group();
   ctrl.add(new THREE.Mesh(cylGeom(0.014, 0.014, 0.18, 10, 0, 0.09, 0), std(0x9a9ea2, 0.3, 0.8)));
   ctrl.add(new THREE.Mesh(boxGeom(0.11, 0.05, 0.05, 0, 0.19, 0), std(0x141414, 0.4)));
-  ctrl.position.set(-0.42 - 0.14, deskY + 0.03, 0.62);
+  ctrl.position.set(-0.42 + (0.43 - 0.5) * 1.45, deskY + 0.03, 0.62); // центр прорези «ХОД — ТОРМОЗ» на нижней панели
   grp.add(ctrl);
   // правый блок: зелёный дисплей БУП и клавиатура
   const bup = tex(384, 192, (x) => { x.fillStyle = '#0b1a0b'; x.fillRect(0, 0, 384, 192); });
@@ -467,7 +478,7 @@ function cab740(grp, P) {
   grp.add(bb);
   // мониторы камер на пульте
   const mon = (x, ry) => { const g = new THREE.Group(); g.add(new THREE.Mesh(boxGeom(0.3, 0.22, 0.14, 0, 0, -0.07), std(0x9a9ea2, 0.5, 0.2))); const t = screenTex(256, 190); const m = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 0.18), new THREE.MeshBasicMaterial({ map: t })); m.position.z = 0.002; g.add(m); g.position.set(x, deskY + 0.42, 0.2); g.rotation.set(-0.15, ry, 0); grp.add(g); return { g, t }; };
-  const m1 = mon(-1.0, 0.3), m2 = mon(0.52, -0.25);
+  const m2 = mon(0.52, -0.25);
   // два манометра на стойке слева
   const post = new THREE.Group();
   post.add(new THREE.Mesh(boxGeom(0.18, 0.42, 0.04, 0, 0, -0.02), std(0xe2dcc6, 0.6)));
@@ -479,7 +490,7 @@ function cab740(grp, P) {
   grp.add(new THREE.Mesh(mergeGeoms([boxGeom(0.22, 0.06, 0.16, 0.75, deskY - 0.05, 0.62), boxGeom(0.05, 0.05, 0.2, 0.7, deskY, 0.62)]), dark));
   seat(grp, -0.5, 1.85, new THREE.MeshStandardMaterial({ map: fabricTex('#6a1010', '#c4282b'), roughness: 0.9 }), std(0x3a3e42, 0.4, 0.5));
   return {
-    ctrl, keep: [ctrl, segM, bm, m1.g, m2.g, post],
+    ctrl, keep: [ctrl, segM, bm, m2.g, post],
     update(s) {
       let x = seg.image.getContext('2d');
       x.fillStyle = '#100404'; x.fillRect(0, 0, 512, 160);
@@ -498,7 +509,7 @@ function cab740(grp, P) {
       x.fillText(s.dist != null ? `ДО ОСТ ${Math.max(0, Math.round(s.dist))} М` : '', 12, 135);
       x.fillText(s.time || '', 12, 178);
       bup.needsUpdate = true;
-      for (const m of [m1, m2]) {
+      for (const m of [m2]) {
         x = m.t.image.getContext('2d');
         const g = x.createLinearGradient(0, 0, 0, 190); g.addColorStop(0, '#3a4046'); g.addColorStop(1, '#1a1d20');
         x.fillStyle = g; x.fillRect(0, 0, 256, 190);

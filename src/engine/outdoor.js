@@ -85,8 +85,14 @@ export function buildPortal(route, s, facingForward, cut) {
   gm.map.repeat.set(8, 8);
   const hide = new THREE.MeshBasicMaterial({ visible: false });
   const mats = [gm, gm, gm, gm, gm, gm];
-  mats[dir > 0 ? 5 : 4] = hide;
+  mats[4] = hide; mats[5] = hide; // торцы скрыты: ближний закрыл бы проём, дальний — стена поперёк тоннеля
   grp.add(new THREE.Mesh(boxGeom(W + 30, 23, 150, ox / 2, -2.5, dir * 75.1), mats));
+  // фасад холма по бокам от портальной стенки (сам торец холма скрыт)
+  const hw = (W + 30) / 2, cx = ox / 2;
+  grp.add(new THREE.Mesh(mergeGeoms([
+    new THREE.PlaneGeometry(cx - hw - (ox - W / 2) < 0 ? (ox - W / 2) - (cx - hw) : 0.01, 23).translate(((cx - hw) + (ox - W / 2)) / 2, -2.5, dir * 0.06),
+    new THREE.PlaneGeometry(Math.max(0.01, (cx + hw) - W / 2), 23).translate((W / 2 + cx + hw) / 2, -2.5, dir * 0.06),
+  ]), new THREE.MeshLambertMaterial({ map: gm.map, color: gm.color, side: THREE.DoubleSide })));
   // встречный тоннель: тёмный тюбинг за проёмом
   const dark = new THREE.MeshLambertMaterial({ color: 0x24221f, side: THREE.DoubleSide });
   grp.add(new THREE.Mesh(new THREE.CylinderGeometry(TUBE_R, TUBE_R, 60, 24, 1, true).rotateX(Math.PI / 2).translate(ox, TUBE_CY, dir * 30), dark));
@@ -143,8 +149,15 @@ function osmPortal(route, s, facingForward, ox, hill = false) {
     const gm = new THREE.MeshLambertMaterial({ map: grassTexture(), color: 0x7f9a5a });
     gm.map.repeat.set(8, 8);
     const mats = [gm, gm, gm, gm, gm, gm];
-    mats[dir > 0 ? 5 : 4] = new THREE.MeshBasicMaterial({ visible: false });
-    const hb = new THREE.Mesh(boxGeom(X1 - X0 + 16, 21, 150, (X0 + X1) / 2, gy + 10.5 - 4, dir * 75.05), mats);
+    mats[4] = mats[5] = new THREE.MeshBasicMaterial({ visible: false });
+    mats[3] = mats[4]; // низ холма тоже не рисуем — он проходил бы сквозь заглубляющийся тоннель
+    const hb = new THREE.Mesh(boxGeom(X1 - X0 + 16, 30, 150, (X0 + X1) / 2, gy + 2, dir * 75.05), mats);
+    const fs = new THREE.Shape();
+    const hx0 = (X0 + X1) / 2 - (X1 - X0 + 16) / 2, hx1 = (X0 + X1) / 2 + (X1 - X0 + 16) / 2, hy0 = gy + 2 - 15, hy1 = gy + 2 + 15;
+    fs.moveTo(hx0, hy0); fs.lineTo(hx1, hy0); fs.lineTo(hx1, hy1); fs.lineTo(hx0, hy1); fs.lineTo(hx0, hy0);
+    const fh = new THREE.Path(); fh.moveTo(X0, Y0); fh.lineTo(X1, Y0); fh.lineTo(X1, Y1); fh.lineTo(X0, Y1); fh.lineTo(X0, Y0); fs.holes.push(fh);
+    const front = new THREE.Mesh(new THREE.ShapeGeometry(fs, 1).translate(0, 0, dir * 0.04), new THREE.MeshLambertMaterial({ map: gm.map, color: gm.color, side: THREE.DoubleSide }));
+    hb.add(front);
     hb.applyMatrix4(route.matrixAt(s, new THREE.Matrix4(), true));
     grp.userData.hill = hb;
   }
