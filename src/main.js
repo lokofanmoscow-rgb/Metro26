@@ -10,7 +10,7 @@ import { loadOSM } from './engine/osm.js';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'metro26.saves.v1';
-const SET_KEY = 'metro26.settings.v2'; // v2: максимальная графика по умолчанию
+const SET_KEY = 'metro26.settings.v3'; // v3: максимальная графика, эффекты по умолчанию выключены
 
 const store = {
   read(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch (e) { return def; } },
@@ -241,7 +241,7 @@ function toMenu() {
 function startGame(loadData = null) {
   game.sound.init();
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-  game.settings.short = $('optShort').checked;
+  game.settings.short = false;
   game.settings.free = $('optFree').checked;
   withLoading(() => {
     if (loadData) {
@@ -319,7 +319,7 @@ function loadDialog() {
     e.className = 'slot';
     e.innerHTML = `<div style="font-weight:700;width:24px">${k === 'auto' ? 'А' : k + 1}</div><div class="s-main">${k === 'auto' ? '<span>автосохранение</span>' : ''}${t.html}</div><button class="btn" title="Удалить">✕</button>`;
     e.querySelector('button').onclick = async (ev) => { ev.stopPropagation(); if (await ask('Удалить это сохранение?', 'Удалить')) { saves.remove(k); loadDialog(); } };
-    e.onclick = () => { $('dialog').classList.add('hidden'); $('optShort').checked = !!rec.data.short; startGame(rec.data); };
+    e.onclick = () => { $('dialog').classList.add('hidden'); startGame(rec.data); };
     body.appendChild(e);
   }
   if (!any) body.insertAdjacentHTML('beforeend', '<p>Сохранений пока нет.</p>');
@@ -437,14 +437,15 @@ function boot() {
     fatal('Не удалось запустить 3D-графику', `Браузер отказал в создании WebGL-контекста (${e && e.message ? e.message : e}). Закройте другие вкладки с 3D или перезапустите браузер.`);
     return () => {};
   }
-  const st = store.read(SET_KEY, null);
+  let st = store.read(SET_KEY, null);
+  if (!st) { const old = store.read('metro26.settings.v2', null); if (old) st = { ...old, fx: false }; }
   if (st) { hudOn = st.hud !== false; game.applySettings(st); }
   // фото-текстуры детальных станций декодируются в фоне
   loadHQ();
   loadOSM();
   $('btnStart').onclick = () => startGame();
   $('btnStation').onclick = stationDialog;
-  $('btnContinue').onclick = () => { const a = saves.all().auto; if (a) { $('optShort').checked = !!a.data.short; startGame(a.data); } };
+  $('btnContinue').onclick = () => { const a = saves.all().auto; if (a) { startGame(a.data); } };
   $('btnContinue').disabled = !saves.all().auto;
   $('btnLoad').onclick = loadDialog;
   $('btnMap').onclick = openMap;
@@ -490,7 +491,7 @@ function boot() {
   window.__game = game;
   window.claude?.hot?.snapshot?.(() => (inGame && !game.finished ? { save: game.serialize() } : {}));
   return (data) => {
-    if (data && data.save) { $('optShort').checked = !!data.save.short; startGame(data.save); } else refreshShowroom();
+    if (data && data.save) { startGame(data.save); } else refreshShowroom();
   };
 }
 

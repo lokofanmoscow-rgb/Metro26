@@ -2,7 +2,7 @@
 // Система вагона: начало — центр кузова на уровне головки рельса; вперёд = -Z, вправо = +X.
 import * as THREE from 'three';
 import { makeCanvas, canvasTex, mergeGeoms, boxGeom, cylGeom, mulberry32 } from './util.js';
-import { buildCab, drawPanel } from './cab.js';
+import { buildCab, drawPanel, drawDist } from './cab.js';
 
 const HALF_W = 1.35, BODY_Y0 = 0.62, SIDE_TOP = 3.15, ROOF_TOP = 3.62;
 export const FLOOR_Y = 1.15;
@@ -229,7 +229,7 @@ function underGeom(Lb) {
 }
 
 // кабина машиниста — в cab.js
-export { drawPanel };
+export { drawPanel, drawDist };
 
 // =====================================================================
 // Детальный кузов: проёмы окон и дверей, стёкла, салон, места для пассажиров

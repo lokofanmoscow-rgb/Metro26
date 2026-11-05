@@ -416,19 +416,21 @@ function cab775(grp, P) {
         x.fillRect(18 + i * (476 / n), 130 + j * 36, 476 / n - 6, 30);
       }
       sR.needsUpdate = true;
-      // левый экран: сколько метров осталось до остановки
-      x = sL.image.getContext('2d');
-      x.fillStyle = '#071019'; x.fillRect(0, 0, W, H);
-      x.fillStyle = '#59b8ff'; x.font = '700 28px Arial'; x.textAlign = 'center'; x.fillText('До остановки', W / 2, 46);
-      const dm = s.dist != null ? Math.max(0, Math.round(s.dist)) : null;
-      x.fillStyle = dm != null && dm < 50 ? '#ffd23a' : '#ffffff'; x.font = '700 120px Arial'; x.textBaseline = 'middle'; x.fillText(dm != null ? String(dm) : '—', W / 2, 176);
-      x.font = '700 40px Arial'; x.fillStyle = '#cfd6dd'; x.fillText(dm == null ? '' : (dm % 10 === 1 && dm % 100 !== 11) ? 'метр' : ([2, 3, 4].includes(dm % 10) && ![12, 13, 14].includes(dm % 100)) ? 'метра' : 'метров', W / 2, 282);
-      x.textBaseline = 'alphabetic';
-      // полоска приближения к отметке «СТОП»
-      const frac = dm != null ? Math.max(0, Math.min(1, 1 - dm / 1500)) : 0;
-      x.fillStyle = '#1b2a38'; x.fillRect(40, 320, W - 80, 18); x.fillStyle = '#ff8a1e'; x.fillRect(40, 320, (W - 80) * frac, 18);
-      sL.needsUpdate = true;
       gs[0].userData.set(0.5 + s.brake * 0.25); gs[2].userData.set(s.brake * 0.4);
+    },
+    // левый экран: сколько осталось до остановочной отметки (обновляется плавно, почти каждый кадр)
+    dist(d, txt) {
+      const x = sL.image.getContext('2d'); const W = 512, H = 372;
+      x.fillStyle = '#071019'; x.fillRect(0, 0, W, H);
+      x.fillStyle = '#59b8ff'; x.font = '700 30px Arial'; x.textAlign = 'center'; x.textBaseline = 'alphabetic'; x.fillText('До остановки', W / 2, 50);
+      x.textBaseline = 'middle';
+      x.fillStyle = d != null && d < 50 ? '#ffd23a' : '#ffffff'; x.font = '700 124px Arial'; x.textAlign = 'right';
+      x.fillText(d != null ? txt : '—', W - 120, 186);
+      x.font = '700 64px Arial'; x.textAlign = 'left'; x.fillStyle = '#cfd6dd'; x.fillText('м', W - 104, 200);
+      x.textBaseline = 'alphabetic';
+      const frac = d != null ? Math.max(0, Math.min(1, 1 - d / 1500)) : 0;
+      x.fillStyle = '#1b2a38'; x.fillRect(40, 310, W - 80, 20); x.fillStyle = '#ff8a1e'; x.fillRect(40, 310, (W - 80) * frac, 20);
+      sL.needsUpdate = true;
     },
   };
 }
@@ -495,17 +497,18 @@ function cab740(grp, P) {
   seat(grp, -0.5, 1.85, new THREE.MeshStandardMaterial({ map: fabricTex('#6a1010', '#c4282b'), roughness: 0.9 }), std(0x3a3e42, 0.4, 0.5));
   return {
     ctrl, keep: [ctrl, segM, bm, m2.g, post],
-    update(s) {
-      let x = seg.image.getContext('2d');
+    dist(d, txt) {
+      const x = seg.image.getContext('2d');
       x.fillStyle = '#100404'; x.fillRect(0, 0, 512, 160);
       x.fillStyle = '#ff2a1a'; x.textBaseline = 'middle';
-      const dm = s.dist != null ? Math.max(0, Math.round(s.dist)) : null;
       x.font = '700 104px "Courier New",monospace'; x.textAlign = 'right';
-      x.fillText(dm != null ? String(dm) : '----', 400, 86);
+      x.fillText(d != null ? txt : '----', 400, 86);
       x.font = '700 46px "Courier New",monospace'; x.textAlign = 'left'; x.fillText('м', 412, 104);
-      x.font = '700 24px Arial'; x.fillStyle = '#9a2a1a'; x.textAlign = 'left'; x.fillText('ДО ОСТАНОВКИ', 14, 22);
+      x.font = '700 24px Arial'; x.fillStyle = '#9a2a1a'; x.textAlign = 'left'; x.textBaseline = 'alphabetic'; x.fillText('ДО ОСТАНОВКИ', 14, 30);
       seg.needsUpdate = true;
-      x = bup.image.getContext('2d');
+    },
+    update(s) {
+      let x = bup.image.getContext('2d');
       x.fillStyle = '#0b1a0b'; x.fillRect(0, 0, 384, 192);
       x.fillStyle = '#7dff5a'; x.font = '700 26px "Courier New",monospace'; x.textAlign = 'left';
       x.fillText(`АРС ${String(s.limit).padStart(2, ' ')}  ${s.doorsClosed ? 'ДВ ЗАКР' : 'ДВ ОТКР'}`, 12, 40);
@@ -540,15 +543,25 @@ export function buildCab(type) {
   const inner = type === '775' ? cab775(grp, P) : type === '740' ? cab740(grp, P) : cab717(grp, P);
   bakeStatic(grp, [...inner.keep, wiper]);
   return {
-    group: grp, ctrl: inner.ctrl, wiper, light, type, isNew: type !== '717', update: inner.update,
+    group: grp, ctrl: inner.ctrl, wiper, light, type, isNew: type !== '717', update: inner.update, dist: inner.dist,
     eye: new THREE.Vector3(P.eyeX, FLOOR_Y + 1.32, P.eyeZ ?? 1.6),
   };
 }
 
 export function drawPanel(cab, s) {
   if (!cab.update) return;
-  const sig = [Math.round(s.speed), s.limit, s.dist != null ? Math.round(s.dist) : '', s.doorsClosed, s.traction > 0.05, s.brake > 0.05, s.overspeed, s.next, s.time].join('|');
+  const sig = [Math.round(s.speed), s.limit, s.doorsClosed, s.traction > 0.05, s.brake > 0.05, s.overspeed, s.next, s.time].join('|');
   if (sig === cab._sig) return;
   cab._sig = sig;
   cab.update(s);
+}
+
+// экран «до остановки»: перерисовка при каждом изменении показания (как табло сверху)
+export function drawDist(cab, d) {
+  if (!cab.dist) return;
+  const v = d == null ? null : Math.max(0, d);
+  const txt = v == null ? '' : v < 10 ? v.toFixed(1) : String(Math.round(v));
+  if (txt === cab._dk) return;
+  cab._dk = txt;
+  cab.dist(v, txt);
 }

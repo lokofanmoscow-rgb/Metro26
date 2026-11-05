@@ -5,7 +5,7 @@ import { Route } from './engine/route.js';
 import { buildTunnelChunk, buildTransitionRing } from './engine/tunnel.js';
 import { buildStation, buildStationSteps } from './engine/station.js';
 import { buildOutdoorChunk, buildOutdoorEnvSteps, buildPortal, buildSky } from './engine/outdoor.js';
-import { Train, drawPanel } from './engine/train.js';
+import { Train, drawPanel, drawDist } from './engine/train.js';
 import { Crowd } from './engine/people.js';
 import { Sound } from './engine/audio.js';
 import { releaseTextures } from './engine/textures.js';
@@ -22,6 +22,9 @@ import { SCHEME } from './data/scheme.js';
 const CHUNK = 200;
 const clockStr = (t) => { t = Math.floor(t % 86400); const p = (n) => String(n).padStart(2, '0'); return `${p(Math.floor(t / 3600))}:${p(Math.floor(t / 60) % 60)}`; };
 
+
+const _flip = new THREE.Matrix4().makeRotationY(Math.PI);
+const _tmpM = new THREE.Matrix4();
 
 export class Game {
   constructor(canvas, ui) {
@@ -61,7 +64,8 @@ export class Game {
     this.crowd = new Crowd(this.scene);
     this.loaded = new Map();
     this.ambientPool = {};
-    this.settings = { volume: 0.8, voice: true, hud: true, short: false, quality: 2, sens: 1, fx: true };
+    this.ambients = [];
+    this.settings = { volume: 0.8, voice: true, hud: true, short: false, quality: 2, sens: 1, fx: false };
     this.keys = { up: false, down: false };
     this.view = { yaw: 0, pitch: -0.04, mode: 'cab', oyaw: -0.9, opitch: 0.14, odist: 13 };
     this.mode = 'idle';
@@ -128,7 +132,7 @@ export class Game {
     this.line = LINES[line];
     this.dir = dir;
     this.trainId = train;
-    this.route = new Route(this.line, dir, { shortSpans: this.settings.short });
+    this.route = new Route(this.line, dir);
     const R = this.route;
     // тяжёлые текстуры детальных станций — сразу при старте рейса, а не при подъезде к станции
     if (!showroom) warmHQ((st) => buildStation(R, st, LINES[line]), R.stations);
@@ -160,7 +164,8 @@ export class Game {
     this.finished = false;
     this.overspeed = false;
     this.intervals = new Map();
-    this.ambient = null;
+    for (const a of [...this.ambients]) this._hideAmbient(a);
+    this._ambK = null;
     this.rng = mulberry32(Date.now() & 0xffff);
     this._warmAmbient();
     this.train.update(R, this.s);
@@ -198,7 +203,7 @@ export class Game {
     for (const [, it] of this.loaded) this._unloadItem(it);
     this.pending = []; this.envJobs = [];
     this.loaded.clear();
-    this._hideAmbient();
+    for (const a of [...this.ambients]) this._hideAmbient(a);
   }
 
   _unloadItem(it) {
@@ -282,17 +287,20 @@ export class Game {
     const hidden = [];
     obj.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
     const restore = () => { for (const o of hidden) o.visible = false; };
-    try {
-      if (r.compileAsync && onDone) {
-        const p = r.compileAsync(obj, this.camera, this.scene);
-        restore();
-        p.then(onDone, onDone);
-        return;
-      }
-      r.compile(obj, this.camera, this.scene);
-    } catch (e) { console.warn('compile', e); }
+    let mats = null;
+    try { mats = r.compile(obj, this.camera, this.scene); } catch (e) { console.warn('compile', e); }
     restore();
-    if (onDone) onDone();
+    if (!onDone) return;
+    // ждём готовности программ (KHR_parallel_shader_compile); материал могли уже удалить — тогда не ждём его
+    if (!mats || !mats.size || !r.extensions.get('KHR_parallel_shader_compile')) { onDone(); return; }
+    const t0 = performance.now();
+    const poll = () => {
+      try {
+        for (const m of mats) { const pr = r.properties.get(m).currentProgram; if (!pr || pr.isReady()) mats.delete(m); }
+      } catch (e) { mats.clear(); }
+      if (!mats.size || performance.now() - t0 > 4000) onDone(); else setTimeout(poll, 16);
+    };
+    setTimeout(poll, 16);
   }
 
   // продолжение построек станций и съёмки отражений: не дольше budget мс за кадр
@@ -558,7 +566,7 @@ export class Game {
   }
 
   load(data) {
-    this.settings.short = !!data.short;
+    this.settings.short = false;
     this.settings.free = !!data.free;
     this.setup({ line: data.line, dir: data.dir, train: data.train, s: data.s, v: data.speed || 0, state: data });
   }
@@ -683,11 +691,13 @@ export class Game {
     const outdoor = R.isOutdoor(this.s);
     const st = {
       speed: this.v * 3.6, limit: lim, traction: this.traction, brake: Math.max(this.brake, autoBr),
-      doorsClosed, overspeed: over, next: next?.name, dist: next ? next.stop - this.s : null,
+      doorsClosed, overspeed: over, next: next?.name, dist: this._cabDist(),
       cars: def.cars, time: clockStr(this.gameTime),
     };
     this._panelT = (this._panelT || 0) - dt;
     if (this._panelT <= 0 && this.train.cab.group.visible) { drawPanel(this.train.cab, st); this._panelT = 0.2; }
+    this._distT = (this._distT || 0) - dt;
+    if (this._distT <= 0 && this.train.cab.group.visible) { drawDist(this.train.cab, st.dist); this._distT = 1 / 30; }
     // рукоятка контроллера
     const ctrl = this.train.cab.ctrl;
     const pos = this.traction - Math.max(this.brake, autoBr);
@@ -718,6 +728,15 @@ export class Game {
     // подготовка толпы на приближающейся станции
     const nk = R.nextStationIndex(this.s);
     const nst = R.stations[nk];
+    // встречный поезд — решаем заранее, пока станции ещё не видно: у подземной станции за ~1 км,
+    // у наземной — сразу после отправления с предыдущей (её видно издалека)
+    if (nst && this._ambK !== nk) {
+      const reach = R.isOutdoor(nst.c) || R.isOutdoor(nst.c + 150) || R.isOutdoor(nst.c - 150) ? 2200 : 1000;
+      if (nst.stop - this.s < reach) {
+        this._ambK = nk;
+        if (this.rng() < 0.65) this._spawnAmbient(nk, (nst.stop - this.s) / Math.max(9, this.v));
+      }
+    }
     if (nst && this._prefetchK !== nk && nst.stop - this.s < 700) {
       this._prefetchK = nk;
       const nn = R.stations[nk + 1];
@@ -732,7 +751,6 @@ export class Game {
       this.announced.add(nk);
       const last = nk === R.stations.length - 1;
       this.sound.say(arrivalText(nst.name, nst.sid), { male: false, then: last ? TERMINAL_TEXT : null });
-      if (this.rng() < 0.65) this._spawnAmbient(nk);
     }
     // отправление: пропуск станции
     if (this.atStation != null && this.doorTarget === 0 && this.s > R.stations[this.atStation].p1 + 40) this.atStation = null;
@@ -777,55 +795,87 @@ export class Game {
     this._warmT = setTimeout(next, 1200);
   }
 
-  _spawnAmbient(k) {
-    const o = this._stationObj(k);
-    if (!o || this.ambient) return;
-    const ready = Object.keys(this.ambientPool);
-    if (!ready.length) return;
-    const tr = this.ambientPool[ready[Math.floor(this.rng() * ready.length)]];
-    tr.setDestination(this.route.stations[0].name);
-    tr.setEnv(o.info.env || this.defaultEnv, 1);
+  // встречный поезд у станции k: решается заранее (станции ещё не видно) — либо уже стоит
+  // у платформы, либо едет издалека по встречному пути и подходит к платформе
+  _spawnAmbient(k, eta = 60) {
+    const busy = new Set(this.ambients.map((a) => a.train));
+    const ready = Object.values(this.ambientPool).filter((t) => !busy.has(t));
+    if (!ready.length || this.ambients.some((a) => a.k === k)) return false;
+    const R = this.route, st = R.stations[k];
+    const tr = ready[Math.floor(this.rng() * ready.length)];
+    tr.setDestination(R.stations[0].name);
+    tr.setEnv(this.defaultEnv, 1);
+    tr.setDoors(0, -1);
     tr.group.visible = true;
     this.crowd.attachAmbient(tr);
     const arriving = this.rng() < 0.6;
-    this.ambient = { train: tr, st: o, k, z: arriving ? -420 : 78, v: arriving ? 16 : 0, state: arriving ? 'arrive' : 'dwell', t: arriving ? 0 : 8 + this.rng() * 10 };
+    const side = st.style.t === 'side' ? 1 : -1;
+    // стоящий — отправится, пока мы на станции; идущий — подойдёт примерно вместе с нами
+    const dwell = eta + 12 + this.rng() * 18;
+    const dist = clamp(eta * (10 + this.rng() * 6), 350, 1300);
+    const a = { train: tr, st, k, side, z: arriving ? 78 - dist : 78, v: arriving ? 16 : 0, state: arriving ? 'arrive' : 'dwell', t: dwell, t0: dwell };
+    this.ambients.push(a);
+    this._ambientOne(a, 0);
+    return true;
   }
 
-  _hideAmbient() {
-    if (!this.ambient) return;
-    this.ambient.train.setDoors(0, -1);
-    this.ambient.train.group.visible = false;
-    this.ambient = null;
-    this.crowd.attachAmbient(null);
+  // смещение встречного пути относительно нашего в точке s трассы
+  _oppXAt(s, st) {
+    const R = this.route;
+    const z = R.polyZones.find((o) => s >= o.s0 && s <= o.s1);
+    if (z && z.oppAt) return z.oppAt(s);
+    const t = st.style.t;
+    if (t === 'side') return -4.6;
+    const W = t === 'pylon' || t === 'cold' ? 19 : t === 'bridge' ? 14 : 10;
+    return -1.48 - W - 1.48;
+  }
+
+  // «до остановки» на экране кабины: до отметки станции, к которой подъезжаем или у которой стоим
+  // (переключается на следующую, только когда отъехали от отметки)
+  _cabDist() {
+    const R = this.route;
+    for (const st of R.stations) if (st.stop > this.s - 15) return st.stop - this.s;
+    return null;
+  }
+
+  _hideAmbient(a) {
+    a.train.setDoors(0, -1);
+    a.train.group.visible = false;
+    this.crowd.detachAmbient(a.train);
+    this.ambients = this.ambients.filter((x) => x !== a);
   }
 
   _ambientTrain(dt) {
-    const a = this.ambient;
-    if (!a) return;
+    for (const a of [...this.ambients]) this._ambientOne(a, dt);
+  }
+
+  _ambientOne(a, dt) {
     const stop = 78;
     if (a.state === 'arrive') {
       const d = stop - a.z;
       const vt = Math.sqrt(Math.max(0, 2 * 1.1 * d));
       a.v = Math.min(a.v, vt, 18);
-      if (d < 0.3) { a.v = 0; a.z = stop; a.state = 'dwell'; a.t = 18 + this.rng() * 10; }
+      if (d < 0.3) { a.v = 0; a.z = stop; a.state = 'dwell'; a.t = a.t0 = 18 + this.rng() * 10; }
     } else if (a.state === 'dwell') {
       a.t -= dt;
-      a.train.setDoors(clamp(Math.min(a.t - 3, 20 - a.t) / 2, 0, 1), -1);
-      if (a.t <= 0) { a.state = 'depart'; a.train.setDoors(0, -1); }
+      a.train.setDoors(clamp(Math.min(a.t - 3, a.t0 - a.t - 2) / 2, 0, 1), a.side);
+      if (a.t <= 0) { a.state = 'depart'; a.train.setDoors(0, a.side); }
     } else if (a.state === 'depart') {
       a.v = Math.min(22, a.v + 1.0 * dt);
-      if (a.z > 600) { this._hideAmbient(); return; }
+      if (a.z > 1500) { this._hideAmbient(a); return; }
     }
     a.z += a.v * dt;
-    if (!this.loaded.has('st:' + a.k)) { this._hideAmbient(); return; }
-    // встречный поезд едет по пути oppX в сторону +Z локальной системы станции
-    const M = a.st.group.matrixWorld;
-    const base = new THREE.Matrix4().makeRotationY(Math.PI);
+    // станция давно позади — убираем
+    if (a.st.c < this.s - 1800) { this._hideAmbient(a); return; }
+    // поезд едет по встречному пути (по настоящей оси трассы) в сторону +Z локальной системы станции
+    const R = this.route;
+    const flip = _flip;
     a.train.placeSections((sc) => {
       const zc = a.z - sc.off - sc.Lb / 2;
-      // за торцами зала поезд прячем, чтобы не торчал сквозь тоннель
-      sc.group.visible = Math.abs(zc) < 84 + sc.Lb / 2 + 30;
-      return new THREE.Matrix4().multiplyMatrices(M, new THREE.Matrix4().makeTranslation(a.st.info.oppX, 0, zc).multiply(base));
+      const s = a.st.c - zc;
+      sc.group.visible = Math.abs(zc) < 1600 && s > 0 && s < R.length;
+      const m = R.matrixAt(Math.max(0, Math.min(R.length, s)), new THREE.Matrix4());
+      return m.multiply(_tmpM.makeTranslation(this._oppXAt(s, a.st), 0, 0)).multiply(flip);
     });
   }
 

@@ -57,7 +57,6 @@ export class Crowd {
     this.people = [];
     this.station = null;
     this.train = null;
-    this.ambient = null;
     this.boarded = 0; this.alighted = 0;
     this.rng = mulberry32(1234);
     this.M = new THREE.Matrix4(); this.B = new THREE.Matrix4(); this.T = new THREE.Matrix4();
@@ -70,11 +69,15 @@ export class Crowd {
     this.train = train;
   }
 
+  // пассажиры во встречных поездах (их может быть несколько одновременно)
   attachAmbient(train) {
-    this.people = this.people.filter((p) => !(p.frame === 'car' && p.train === this.ambient));
-    if (this.ambient) for (const sc of this.ambient.sections) for (const sp of sc.spots) sp.used = false;
-    this.ambient = train;
-    if (train) this.fillRiders(train, 0.3);
+    this.detachAmbient(train);
+    this.fillRiders(train, 0.3);
+  }
+
+  detachAmbient(train) {
+    this.people = this.people.filter((p) => !(p.frame === 'car' && p.train === train));
+    for (const sc of train.sections) for (const sp of sc.spots) sp.used = false;
   }
 
   clear() {
