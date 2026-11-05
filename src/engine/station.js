@@ -291,6 +291,18 @@ export function* buildStationSteps(route, st, line) {
   yield; // постройка по частям: следующий кусок — в следующем кадре
   if (hq) hq(grp, { PLAT_Y, EDGE_X, xFar, oppX, rightWall, leftWall, PL, HZ, BED_Y, info, style, yC });
   yield;
+  if (st.elev) {
+    // станция на эстакаде: плита под путями и платформой, ригели и стойки до земли
+    const gl = GROUND_Y - route.y(st.c);
+    const x0 = leftWall - 0.6, x1 = rightWall + 0.6, xc = (x0 + x1) / 2;
+    const concM = new THREE.MeshLambertMaterial({ map: concreteTexture('#a8a49a'), color: 0xd0d0cc });
+    const sub = [boxGeom(x1 - x0, 1.0, 2 * HZ, xc, BED_Y - 0.55, 0), boxGeom(0.3, 1.3, 2 * HZ, x0 + 0.15, BED_Y + 0.2, 0), boxGeom(0.3, 1.3, 2 * HZ, x1 - 0.15, BED_Y + 0.2, 0)];
+    for (let z = -HZ + 8; z <= HZ - 8; z += 22) {
+      sub.push(boxGeom(x1 - x0 - 1, 1.2, 1.8, xc, BED_Y - 1.65, z));
+      for (const x of [x0 + (x1 - x0) * 0.25, x0 + (x1 - x0) * 0.75]) sub.push(cylGeom(0.7, 0.8, BED_Y - 2.2 - gl, 14, x, (BED_Y - 2.2 + gl) / 2, z));
+    }
+    grp.add(new THREE.Mesh(mergeGeoms(sub), concM));
+  }
 
   if (!hq && (t === 'col' || t === 'span' || t === 'ground' || t === 'bridge')) {
     // потолок

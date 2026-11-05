@@ -155,7 +155,7 @@ function renderDirs() {
   const dirs = lineDirs(sel.line);
   if (sel.dir >= dirs.length) sel.dir = 0;
   $('dirList').innerHTML = '';
-  dirs.map((x) => [x.dir, `${x.from} → ${x.to}`]).forEach(([d, txt]) => {
+  dirs.map((x) => [x.dir, x.label]).forEach(([d, txt]) => {
     const e = document.createElement('button');
     e.className = 'dir-btn' + (sel.dir === d ? ' sel' : '');
     e.textContent = txt;
@@ -163,7 +163,7 @@ function renderDirs() {
     $('dirList').appendChild(e);
   });
   const st = dirs[sel.dir].line.stations;
-  $('menuInfo').innerHTML = `${lineBadge(L)} <b>${L.name}</b><br>${st.length} станций · ${(st.reduce((t, s) => t + s.d, 0) / 1000).toFixed(1)} км${L.branch ? ' · развилка за станцией «' + L.branch.at + '»' : ''}<br><span style="color:#9aa3ad">Станции построены по описаниям оформления из Википедии: тип конструкции, облицовка стен, колонн и пола.</span>`;
+  $('menuInfo').innerHTML = `${lineBadge(L)} <b>${L.name}</b><br>${st.length - (L.ring ? 1 : 0)} станций · ${(st.reduce((t, s) => t + s.d, 0) / 1000).toFixed(1)} км${L.ring ? ' · полный круг' : ''}${L.branch ? ' · развилка за станцией «' + L.branch.at + '»' : ''}<br><span style="color:#9aa3ad">Станции построены по описаниям оформления из Википедии: тип конструкции, облицовка стен, колонн и пола.</span>`;
 }
 
 // станции выбранной линии в порядке выбранного направления
@@ -281,7 +281,7 @@ function slotTitle(rec) {
   if (!rec) return null;
   const d = rec.data, L = LINES[d.line];
   const dd = lineDirs(d.line);
-  const to = (dd[d.dir] || dd[0]).to;
+  const to = (dd[d.dir] || dd[0]).line.ring ? (dd[d.dir] || dd[0]).label.split(':')[0].toLowerCase() : (dd[d.dir] || dd[0]).to;
   return { html: `${lineBadge(L)} <b>→ ${to}</b><span>${TRAINS[d.train].short} · след.: ${d.next || '—'} · очки ${Math.round(d.stats.score)} · ${new Date(rec.date).toLocaleString('ru-RU')}</span>` };
 }
 

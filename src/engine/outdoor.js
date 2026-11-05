@@ -347,7 +347,7 @@ export function buildOutdoorChunk(route, s0, s1, zone) {
         const varies = Math.abs(OF(u) - OX) > 0.01 || Math.abs(OF(v) - OX) > 0.01 || Math.abs(OF((u + v) / 2) - OX) > 0.01;
         grp.add(buildTrack(route, u, v, { bed: false }));
         grp.add(oppTrack(route, u, v, varies ? OF : OX));
-        grp.add(onBridge ? openBridge(route, u, v, Math.min(OF(u), OF(v), OF((u + v) / 2))) : embankment(route, u, v, varies ? OF : OX, Z.kind === 'gallery'));
+        grp.add(onBridge ? openBridge(route, u, v, Math.min(OF(u), OF(v), OF((u + v) / 2)), !!Z.elev) : embankment(route, u, v, varies ? OF : OX, Z.kind === 'gallery'));
         if (Z.kind === 'gallery') grp.add(groundGallery(route, u, v, OF));
       }
     }
@@ -484,11 +484,12 @@ function groundGallery(route, s0, s1, OF) {
 }
 
 // открытый метромост: плита проезжей части, коробчатые балки, перила, опоры до земли/дна
-function openBridge(route, s0, s1, OX) {
+// viaduct — городская эстакада (Бутовская линия): железобетонные балки, опоры до земли через ~33 м
+function openBridge(route, s0, s1, OX, viaduct = false) {
   const grp = new THREE.Group();
   const xr = 3.2, xl = OX - 3.2;
   const conc = new THREE.MeshLambertMaterial({ map: concreteTexture('#9a968c'), color: 0xd8d8d8, side: THREE.DoubleSide });
-  const steel = new THREE.MeshLambertMaterial({ color: 0x5f7a86, side: THREE.DoubleSide });
+  const steel = viaduct ? new THREE.MeshLambertMaterial({ map: concreteTexture('#a8a49a'), color: 0xd0d0cc, side: THREE.DoubleSide }) : new THREE.MeshLambertMaterial({ color: 0x5f7a86, side: THREE.DoubleSide });
   grp.add(new THREE.Mesh(mergeGeoms([
     sweep(route, s0, s1, [{ x: xr, y: -0.3 }, { x: xl, y: -0.3 }], { step: 4, uScale: 3, vScale: 3 }),
     sweep(route, s0, s1, [{ x: xl, y: -0.3 }, { x: xl, y: -0.75 }, { x: xr, y: -0.75 }, { x: xr, y: -0.3 }], { step: 4, uScale: 3, vScale: 3 }),
@@ -510,11 +511,20 @@ function openBridge(route, s0, s1, OX) {
   ]), rail));
   // опоры: от низа балок до дна (уходят в рельеф на берегу)
   const pierM = new THREE.MeshLambertMaterial({ map: concreteTexture('#a39e94') });
-  const first = Math.ceil(s0 / 42) * 42;
+  const step = viaduct ? 33 : 42;
+  const first = Math.ceil(s0 / step) * step;
   const pg = [];
   const f = {};
-  for (let s = first; s < s1; s += 42) {
+  for (let s = first; s < s1; s += step) {
     route.frameAt(s, f);
+    if (viaduct) {
+      // Т-образная опора: ригель под балками и круглая стойка до земли
+      const h = route.y(s) - GROUND_Y - 3 + 1.5;
+      const rig = new THREE.BoxGeometry(-OX + 5, 1.1, 1.8); rig.translate(OX / 2, -3.55, 0);
+      const col = new THREE.CylinderGeometry(0.75, 0.85, h, 14); col.translate(OX / 2, -3 - h / 2, 0);
+      for (const g of [rig, col]) { g.applyMatrix4(route.matrixAt(s, new THREE.Matrix4(), true)); pg.push(g); }
+      continue;
+    }
     const h = route.y(s) - (GROUND_Y - 11) - 3; // до дна реки / в грунт
     const g = new THREE.BoxGeometry(OX * -1 + 2, h, 2.4);
     g.translate(OX / 2, -3 - h / 2, 0);

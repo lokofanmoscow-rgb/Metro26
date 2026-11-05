@@ -68,13 +68,18 @@ export class Route {
         const rv = !!o.rev !== (dir === 1);
         const pa = Array.isArray(o.portal) ? o.portal : [o.portal ?? PORTAL_D, o.portal ?? PORTAL_D];
         const pd0 = rv ? pa[1] : pa[0], pd1 = rv ? pa[0] : pa[1];
-        return { s0, s1: s0 + poly.length, kind: o.kind, osm: o.osm, poly, oppX: o.kind === 'open' || o.kind === 'gallery' ? -poly.spacing : -12.96, rev: rv, pd0, pd1, pd: Math.max(pd0, pd1), rise: o.rise ?? BRIDGE_RISE, portalBuilding: !!o.portalBuilding };
+        return { s0, s1: s0 + poly.length, kind: o.kind, osm: o.osm, poly, oppX: o.kind === 'open' || o.kind === 'gallery' ? -poly.spacing : -12.96, rev: rv, pd0, pd1, pd: Math.max(pd0, pd1), rise: o.rise ?? BRIDGE_RISE, portalBuilding: !!o.portalBuilding, elev: !!o.elev };
       }
       const a = toRoute(cf[byName[o.from[0]]] + o.from[1]);
       const b = toRoute(cf[byName[o.to[0]]] + o.to[1]);
       return { s0: Math.min(a, b), s1: Math.max(a, b), kind: o.kind, oppX: -12.96 };
     });
     this.polyZones = this.outdoor.filter((o) => o.poly);
+    // станции на эстакаде/метромосту реального участка — на высоте пролётов
+    for (const o of this.polyZones) for (const st of this.stations) {
+      const x = st.c - o.s0;
+      if (x > 0 && x < o.s1 - o.s0 && o.poly.bridges.some(([a, b]) => x > a - 30 && x < b + 30) && o.rise > 0.5) { st.level = o.rise; st.elev = true; }
+    }
     // развилка за станцией line.fork.at: по ходу от начала линии ответвление — после станции
     this.fork = null;
     if (line.fork) {

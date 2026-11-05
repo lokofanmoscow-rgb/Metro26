@@ -16,7 +16,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { disposeObject, clamp, lerp, fmtTime, mulberry32 } from './engine/util.js';
-import { LINES, TRAINS, resolveDir, reverseDir } from './data/lines.js';
+import { LINES, TRAINS, resolveDir, reverseDir, lineDirs } from './data/lines.js';
 import { buildFork } from './engine/fork.js';
 import { SCHEME } from './data/scheme.js';
 
@@ -130,7 +130,7 @@ export class Game {
   setup({ line, dir = 0, train = '717', s = null, v = 0, state = null, showroom = false, startK = 0 }) {
     this._clearWorld();
     this.lineId = line;
-    if (!LINES[line].branch && dir > 1) dir = 1;
+    if (dir >= lineDirs(line).length) dir = 0;
     const V = resolveDir(line, dir);
     this.line = V.line; // маршрут линии (у линии с ответвлением — один из двух)
     this.dir = dir;
@@ -757,7 +757,7 @@ export class Game {
     if (nst && !this.announced.has(nk) && this.s > nst.p0 - 10 && this.s < nst.stop) {
       this.announced.add(nk);
       const last = nk === R.stations.length - 1;
-      this.sound.say(arrivalText(nst.name, nst.sid), { male: false, then: last ? TERMINAL_TEXT : null });
+      this.sound.say(arrivalText(nst.name, nst.sid), { male: false, then: last && !this.line.ring ? TERMINAL_TEXT : null });
     }
     // отправление: пропуск станции
     if (this.atStation != null && this.doorTarget === 0 && this.s > R.stations[this.atStation].p1 + 40) this.atStation = null;

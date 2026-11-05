@@ -28,6 +28,13 @@ AREAS = {
   'fstud': dict(line='Филёвская линия', anchor='Студенческая', src=['filv'], zone=True, portals=None, spacing=None, crop=650),
   'fkut': dict(line='Филёвская линия', anchor='Кутузовская', src=['filv'], zone=True, portals=None, spacing=None, focus=(55.7441, 37.5242), crop=650),
   'ffili': dict(line='Филёвская линия', anchor='Фили', src=['filv', 'kunc'], zone=True, portals=None, spacing=None, crop=650, px=2.0, extend=(0, 340)),
+  # Таганско-Краснопресненская: открытый участок между «Волгоградским проспектом» и «Текстильщиками»; «Выхино»
+  'tkuz': dict(line='Таганско-Краснопресненская линия', anchor='Текстильщики', src=['tkuz'], zone=True, portals=None, spacing=None, focus=(55.7130, 37.7170), crop=600),
+  'vykh': dict(line='Таганско-Краснопресненская линия', anchor='Выхино', src=['vykh'], zone=True, portals=None, spacing=None, crop=600),
+  # Бутовская: эстакада и конечная «Бунинская аллея» (пути продолжаются в тупики)
+  'butv': dict(line='Бутовская линия', anchor='Бульвар Адмирала Ушакова', src=['butv'], zone=True, portals=None, spacing=None, crop=600, extend=(0, 340)),
+  # Солнцевская: мост между «Рассказовкой» и «Пыхтино»
+  'pykh': dict(line='Солнцевская линия', anchor='Пыхтино', src=['pykh'], zone=True, portals=None, spacing=None, focus=(55.6222, 37.2900), crop=600),
 }
 PX = 1.6  # м на пиксель наземной текстуры
 

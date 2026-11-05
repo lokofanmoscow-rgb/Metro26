@@ -37,6 +37,18 @@ import fkutW from '../assets/osm/fkut_water.png';
 import ffili from '../assets/osm/ffili.json';
 import ffiliG from '../assets/osm/ffili_ground.jpg';
 import ffiliW from '../assets/osm/ffili_water.png';
+import tkuz from '../assets/osm/tkuz.json';
+import tkuzG from '../assets/osm/tkuz_ground.jpg';
+import tkuzW from '../assets/osm/tkuz_water.png';
+import vykh from '../assets/osm/vykh.json';
+import vykhG from '../assets/osm/vykh_ground.jpg';
+import vykhW from '../assets/osm/vykh_water.png';
+import butv from '../assets/osm/butv.json';
+import butvG from '../assets/osm/butv_ground.jpg';
+import butvW from '../assets/osm/butv_water.png';
+import pykh from '../assets/osm/pykh.json';
+import pykhG from '../assets/osm/pykh_ground.jpg';
+import pykhW from '../assets/osm/pykh_water.png';
 
 export const OSM = {
   nag: { data: nag, ground: nagG, water: nagW },
@@ -50,6 +62,10 @@ export const OSM = {
   fstud: { data: fstud, ground: fstudG, water: fstudW },
   fkut: { data: fkut, ground: fkutG, water: fkutW },
   ffili: { data: ffili, ground: ffiliG, water: ffiliW },
+  tkuz: { data: tkuz, ground: tkuzG, water: tkuzW },
+  vykh: { data: vykh, ground: vykhG, water: vykhW },
+  butv: { data: butv, ground: butvG, water: butvW },
+  pykh: { data: pykh, ground: pykhG, water: pykhW },
 };
 
 // Сглаживание оси участка: в данных OSM встречаются изломы (стыки путей), а в метро радиусы
