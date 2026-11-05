@@ -144,6 +144,43 @@ export const LINES = {
     ],
   },
 
+  ln4: {
+    id: 'ln4',
+    num: '4',
+    name: 'Филёвская линия',
+    short: 'Голубая',
+    color: '#1DBBEE',
+    // длины перегонов — по оси путей OpenStreetMap (без округления); короткие перегоны в центре
+    exactD: true,
+    minSpan: 440,
+    stations: [
+      { n: 'Александровский сад', sid: 's73', d: 450, y: 1935, dp: 7.4, t: 'col', cs: 4, csh: 'fac', c: '#d8a99b', w: '#efece4', wp: 'marble', wl: '#c99484', wa: '#e3c3b6', f: ['#8e8e8c', '#6e6e6c'], fp: 'plain', ce: '#efeee9', cp: 'flat', l: 'strip', nm: 'metal', ch: 4.6, info: 'колонная четырёхпролётная мелкого заложения 1935 года; стены и колонны — розовый мрамор, восьмигранные колонны' },
+      { n: 'Арбатская', sid: 's72', d: 1200, y: 1935, dp: 8, t: 'col', cs: 4.5, csh: 'fac', c: '#e2c4a2', w: '#efe3c6', wp: 'tile', wl: '#8a5a44', wa: '#e8d8b4', f: ['#9a4a3a', '#86402f'], fp: 'plain', ce: '#ece8dc', cp: 'flat', l: 'strip', nm: 'metal', info: 'колонны — жёлто-розовый мраморовидный известняк, пол — красная метлахская плитка, путевые стены — кремовая плитка' },
+      { n: 'Смоленская', sid: 's71', d: 1346, y: 1935, dp: 9.2, t: 'col', cs: 4.5, csh: 'sq', c: '#a9aaa8', w: '#e4d7b9', wp: 'tile', wl: '#8e8e8c', wa: '#d9ccae', f: ['#c49a8c', '#b48a7c'], fp: 'plain', ce: '#ece9e0', cp: 'flat', l: 'strip', nm: 'metal', info: 'колонны — серый мрамор, пол — розовый гранит; путевые стены — бежевая шестигранная плитка вверху и серая внизу' },
+      { n: 'Киевская', sid: 's70', d: 1220, y: 1937, dp: 7, t: 'col', cs: 4.5, csh: 'rnd', c: '#e8e0c6', c2: '#c9a25a', w: '#efe7d0', wp: 'tile', wl: '#8f3a32', wa: '#e2d6b4', f: ['#8e8e8c', '#b88a80'], fp: 'border', ce: '#efe9dc', cp: 'coffer', l: 'chand', nm: 'metal', info: 'круглые колонны из мрамора «газган» с капителями-колосьями; пол — серый и розовый гранит с украинским орнаментом' },
+      { n: 'Студенческая', sid: 's67', d: 1092, y: 1958, dp: 0, t: 'side', open: true, c: '#c9ccc8', c2: '#2f7fb8', w: '#dcdcd6', wp: 'panel', wl: '#8c8f92', wa: '#1DBBEE', f: ['#a6a6a2', '#8e8e8c'], fp: 'plain', ce: '#d6d6d2', cp: 'flat', l: 'strip', nm: 'plate', info: 'наземная открытая с двумя боковыми платформами; на стенах — панно об учёбе и образовании' },
+      { n: 'Кутузовская', sid: 's66', d: 1588, y: 1958, dp: 0, t: 'side', open: true, c: '#c9ccc8', c2: '#8a3a2e', w: '#dcdcd6', wp: 'panel', wl: '#8c8f92', wa: '#1DBBEE', f: ['#8e8e8c', '#7a7a78'], fp: 'plain', ce: '#d6d6d2', cp: 'flat', l: 'strip', nm: 'plate', info: 'наземная открытая с боковыми платформами под Можайским путепроводом Кутузовского проспекта' },
+      { n: 'Фили', sid: 's65', d: 1442, y: 1959, dp: 0, t: 'side', open: true, c: '#c9ccc8', c2: '#3d6fa8', w: '#dcdcd6', wp: 'panel', wl: '#8c8f92', wa: '#1DBBEE', f: ['#a6a6a2', '#8e8e8c'], fp: 'plain', ce: '#d6d6d2', cp: 'flat', l: 'strip', nm: 'plate', info: 'наземная открытая с боковыми платформами; поезд въезжает на неё из тоннеля; витражное остекление стен' },
+      { n: 'Багратионовская', sid: 's64', d: 1014, y: 1961, dp: 0, t: 'ground', open: true, c: '#a8aaa8', w: '#cfd2d4', wp: 'panel', wl: '#5a5a58', wa: '#1DBBEE', f: ['#7a7a78', '#6e6e6c'], fp: 'plain', ce: '#d9d9d6', cp: 'rib', l: 'strip', nm: 'plate', info: 'наземная открытая с островной платформой под эстакадой улицы Барклая; колонны — серый мрамор' },
+      { n: 'Филёвский парк', sid: 's63', d: 1091, y: 1961, dp: 0, t: 'ground', open: true, c: '#d2d3d0', w: '#cfd2d4', wp: 'panel', wl: '#5a5a58', wa: '#1DBBEE', f: ['#7a7a78', '#6e6e6c'], fp: 'plain', ce: '#d9d9d6', cp: 'rib', l: 'strip', nm: 'plate', info: 'наземная открытая с островной платформой под эстакадой Минской улицы; колонны — светло-серый мрамор' },
+      { n: 'Пионерская', sid: 's62', d: 1452, y: 1961, dp: 0, t: 'ground', open: true, c: '#ecebe6', w: '#cfd2d4', wp: 'panel', wl: '#5a5a58', wa: '#1DBBEE', f: ['#7a7a78', '#6e6e6c'], fp: 'plain', ce: '#d9d9d6', cp: 'rib', l: 'strip', nm: 'plate', info: 'наземная открытая с островной платформой; колонны эстакады — белый мрамор' },
+      { n: 'Кунцевская', sid: 's61', d: 0, y: 1965, dp: 0, t: 'ground', open: true, c: '#efefea', w: '#cfd2d4', wp: 'panel', wl: '#5a5a58', wa: '#1DBBEE', f: ['#a6a6a2', '#7a7a78'], fp: 'plain', ce: '#d9d9d6', cp: 'flat', l: 'strip', nm: 'plate', info: 'наземная открытая станция, общая с Арбатско-Покровской линией' },
+      // ответвление от «Киевской» (см. branch)
+      { n: 'Деловой центр', sid: 's69', d: 496, y: 2005, dp: 25, t: 'cold', deep: true, cs: 7.8, csh: 'sq', c: '#e8e8e4', c2: '#3a3a3a', w: '#d9d9d6', wp: 'panel', wl: '#3a3a3a', wa: '#9ea3a8', f: ['#bdbdba', '#5a5a58'], fp: 'stripe', ce: '#ecebe6', cp: 'flat', l: 'led', nm: 'plate', info: 'колонная трёхпролётная глубокого заложения (бывшая «Выставочная»)' },
+      { n: 'Москва-Сити', sid: 's68', d: 0, y: 2006, dp: 25, t: 'pylon', deep: true, cs: 7.8, c: '#ecebe6', c2: '#c9ccd0', w: '#cfd2d4', wp: 'panel', wl: '#5a3a2e', wa: '#9ea3a8', f: ['#8e8e8c', '#2a2a2a'], fp: 'check', ce: '#e9e9e5', cp: 'flat', l: 'led', nm: 'plate', info: 'пилонная трёхсводчатая; пилоны — белый мрамор «Бьянка Карара», торцы — шлифованная сталь, путевые стены — алюминиевые панели (бывшая «Международная»)' },
+    ],
+    // вилочное движение: за «Киевской» линия делится на основной ход (к «Кунцевской») и ответвление
+    branch: { at: 'Киевская', d: 2393, names: ['Деловой центр', 'Москва-Сити'] },
+    // открытые участки по OpenStreetMap: Смоленский метромост; Киевская — Студенческая — Кутузовская;
+    // между тоннелями под железной дорогой; Фили — Багратионовская — Филёвский парк — Пионерская — Кунцевская
+    outdoor: [
+      { osm: 'fsmol', rev: false, anchor: 'Смоленская', kind: 'open', portal: 0, rise: 0, portalBuilding: true },
+      { osm: 'fstud', rev: true, anchor: 'Студенческая', kind: 'open', portal: [0, 6.5] },
+      { osm: 'fkut', rev: true, anchor: 'Кутузовская', kind: 'open' },
+      { osm: 'ffili', rev: false, anchor: 'Фили', kind: 'open', portal: [0, 0] },
+    ],
+  },
+
   ln6: {
     id: 'ln6',
     num: '6',
@@ -202,7 +239,53 @@ export const LINES = {
   },
 };
 
-export const PLAYABLE = ['ln1', 'ln2', 'ln3', 'ln6', 'ln16'];
+export const PLAYABLE = ['ln1', 'ln2', 'ln3', 'ln4', 'ln6', 'ln16'];
+
+// ---------- маршруты и направления ----------
+// У линии с ответвлением (вилочное движение) два маршрута: основной и на ответвление.
+// Направления в меню: «начало → конец ответвления», «начало → конец основного хода» и обратные.
+const _var = new Map();
+export function lineVariants(id) {
+  if (_var.has(id)) return _var.get(id);
+  const L = LINES[id];
+  let out;
+  if (!L.branch) out = { main: L, branch: null };
+  else {
+    const B = L.branch;
+    const bset = new Set(B.names);
+    const main = L.stations.filter((s) => !bset.has(s.n));
+    const k = main.findIndex((s) => s.n === B.at);
+    const br = L.stations.filter((s) => bset.has(s.n));
+    const mk = (key, stations, turn) => ({ ...L, key, stations, outdoor: (L.outdoor || []).filter((o) => stations.some((s) => s.n === o.anchor)), fork: { at: B.at, turn } });
+    // основной ход прямо, ответвление уходит вправо (по ходу от начала линии)
+    const m = mk('m', main, 0);
+    const b = mk('b', [...main.slice(0, k), { ...main[k], d: B.d }, ...br], -1);
+    m.fork.ghost = b; b.fork.ghost = m;
+    out = { main: m, branch: b };
+  }
+  _var.set(id, out);
+  return out;
+}
+
+// направление dir (номер в меню) → маршрут и его ход (0 — от начала линии, 1 — к началу)
+export function resolveDir(id, dir) {
+  const V = lineVariants(id);
+  if (!V.branch) return { line: V.main, d: dir ? 1 : 0 };
+  const line = dir === 0 || dir === 2 ? V.branch : V.main;
+  return { line, d: dir >= 2 ? 1 : 0 };
+}
+export function lineDirs(id) {
+  const V = lineVariants(id);
+  const n = V.branch ? 4 : 2;
+  const out = [];
+  for (let dir = 0; dir < n; dir++) {
+    const { line, d } = resolveDir(id, dir);
+    const st = d === 0 ? line.stations : [...line.stations].reverse();
+    out.push({ dir, stations: st, from: st[0].n, to: st[st.length - 1].n, line });
+  }
+  return out;
+}
+export function reverseDir(id, dir) { return LINES[id].branch ? dir ^ 2 : 1 - dir; }
 
 export const TRAINS = {
   '717': {

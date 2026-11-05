@@ -8,6 +8,8 @@ export const TUBE_R = 2.75, TUBE_CY = 1.45, BED_Y = -0.26;
 export const BOX_W = 2.08, BOX_TOP = 4.25;
 
 let M = null;
+export function geomsShared() { return geoms(); }
+
 export function sharedMats() {
   if (M) return M;
   const mk = (m) => { m.userData.shared = true; return m; };
@@ -65,7 +67,7 @@ export function tunnelBake(route, lampX, lampY = 2.3) {
   };
 }
 
-export function buildTrack(route, s0, s1, { bed = true, bake = null, third = true, sleepers = true, bedW = 1.7 } = {}) {
+export function buildTrack(route, s0, s1, { bed = true, bake = null, third = true, sleepers = true, bedW = 1.7, sleeperY = -0.22 } = {}) {
   const m = sharedMats(), g = geoms();
   const grp = new THREE.Group();
   const railProf = (x) => [
@@ -85,7 +87,7 @@ export function buildTrack(route, s0, s1, { bed = true, bake = null, third = tru
     grp.add(new THREE.Mesh(bg, m.bed));
   }
   if (sleepers) {
-    const sl = instancesAlong(route, s0, s1, 0.75, g.sleeper, m.sleeper, () => [{ x: 0, y: -0.22 }]);
+    const sl = instancesAlong(route, s0, s1, 0.75, g.sleeper, m.sleeper, () => [{ x: 0, y: sleeperY }]);
     if (sl) grp.add(sl);
   }
   if (third) {
@@ -105,11 +107,14 @@ export function tubeProfile() {
   return arcProfile(0, TUBE_CY, TUBE_R, a0, Math.PI - a0, 36);
 }
 
-export function buildTunnelChunk(route, s0, s1, deep) {
+// fade — [s, где свет ещё полный, s, где темно]: тоннель «уходит в темноту» (второй путь развилки)
+export function buildTunnelChunk(route, s0, s1, deep, { fade = null } = {}) {
   const m = sharedMats(), g = geoms();
   const grp = new THREE.Group();
   const lampX = deep ? 2.5 : BOX_W - 0.1;
-  const bake = tunnelBake(route, lampX);
+  const bake0 = tunnelBake(route, lampX);
+  const fadeK = (s) => (fade ? Math.max(0, Math.min(1, (s - fade[1]) / (fade[0] - fade[1]))) : 1);
+  const bake = fade ? (s, x, y) => bake0(s, x, y) * fadeK(s) : bake0;
   if (deep) {
     const prof = tubeProfile();
     grp.add(new THREE.Mesh(sweep(route, s0, s1, prof, { step: 2, uScale: 2, vScale: 1, bake }), m.tube));
@@ -130,7 +135,7 @@ export function buildTunnelChunk(route, s0, s1, deep) {
   ]);
   if (br) grp.add(br);
   // светильники
-  const lamps = instancesAlong(route, s0, s1, 30, g.lamp, m.lamp, () => [{ x: lampX - 0.06, y: 2.3 }]);
+  const lamps = instancesAlong(route, s0, s1, 30, g.lamp, m.lamp, (s) => (fadeK(s) > 0.35 ? [{ x: lampX - 0.06, y: 2.3 }] : null));
   const houses = instancesAlong(route, s0, s1, 30, g.lampHouse, m.lampHouse, () => [{ x: lampX + 0.02, y: 2.3 }]);
   if (lamps) grp.add(lamps);
   if (houses) grp.add(houses);

@@ -22,6 +22,12 @@ AREAS = {
   'myak': dict(line='Арбатско-Покровская линия', anchor='Мякинино', zone=True, portals=None, spacing=None),
   'kunc': dict(line='Арбатско-Покровская линия', anchor='Кунцевская', zone=True, portals=None, spacing=None),
   'izm': dict(line='Арбатско-Покровская линия', anchor='Измайловская', zone=True, portals=None, spacing=None),
+  # Филёвская линия (данные загрузки filv, у «Кунцевской» — ещё kunc); участки обрезаются вокруг оси (crop)
+  # Смоленский метромост: подходы к нему проходят под зданиями (tunnel=building_passage) — это тоннель
+  'fsmol': dict(line='Филёвская линия', anchor='Смоленская', src=['filv'], zone=True, portals=None, spacing=None, focus=(55.7482, 37.5750), passage_tunnel=True, crop=650),
+  'fstud': dict(line='Филёвская линия', anchor='Студенческая', src=['filv'], zone=True, portals=None, spacing=None, crop=650),
+  'fkut': dict(line='Филёвская линия', anchor='Кутузовская', src=['filv'], zone=True, portals=None, spacing=None, focus=(55.7441, 37.5242), crop=650),
+  'ffili': dict(line='Филёвская линия', anchor='Фили', src=['filv', 'kunc'], zone=True, portals=None, spacing=None, crop=650, px=2.0, extend=(0, 340)),
 }
 PX = 1.6  # м на пиксель наземной текстуры
 
@@ -106,12 +112,14 @@ def smooth(pts, n=3):
 def build(area, cfg):
     global PX
     PX = cfg.get('px', 1.6)  # большие участки — с меньшим разрешением карты местности
-    nodes, ways, rels = load(area, OSM_DIR)
+    nodes, ways, rels = {}, {}, {}
+    for src in cfg.get('src', [area]):
+        n_, w_, r_ = load(src, OSM_DIR); nodes.update(n_); ways.update(w_); rels.update(r_)
     lats = [v[0] for v in nodes.values()]; lons = [v[1] for v in nodes.values()]
     # границы — по квадратам загрузки (узлы путей выходят за них)
     import glob
     bb = [1e9, 1e9, -1e9, -1e9]
-    for fn in glob.glob(os.path.join(OSM_DIR, area + '_*.osm')):
+    for fn in [f for src in cfg.get('src', [area]) for f in glob.glob(os.path.join(OSM_DIR, src + '_*.osm'))]:
         _, la, lo = os.path.basename(fn)[:-4].split('_')
         la, lo = float(la), float(lo)
         bb = [min(bb[0], la), min(bb[1], lo), max(bb[2], la + 0.006), max(bb[3], lo + 0.010)]
@@ -125,11 +133,27 @@ def build(area, cfg):
     subway = [(w, nd, t) for w, (nd, t) in ways.items() if t.get('railway') == 'subway' and 'service' not in t and cfg['line'] in (t.get('name'), t.get('name:ru'))]
     segs = []  # (a, b, kind)
     for w, nd, t in subway:
-        kind = 'tunnel' if t.get('tunnel') == 'yes' else 'bridge' if t.get('bridge') == 'yes' else 'covered' if t.get('covered') == 'yes' else 'open'
+        kind = 'tunnel' if t.get('tunnel') == 'yes' or (cfg.get('passage_tunnel') and t.get('tunnel') == 'building_passage') else 'bridge' if t.get('bridge') == 'yes' else 'covered' if t.get('covered') == 'yes' else 'open'
         p = wpts(nd)
         for i in range(len(p) - 1): segs.append((p[i], p[i + 1], kind))
-    plat = [wpts(nd) for w, (nd, t) in ways.items() if t.get('railway') == 'platform' and t.get('name') == cfg['anchor']]
-    pc = [sum(q[0] for p in plat for q in p) / sum(len(p) for p in plat), sum(q[1] for p in plat for q in p) / sum(len(p) for p in plat)]
+    # станция-якорь: платформы и узлы станций с этим названием; берём ближайшие к путям линии
+    def seg_d(p):
+        best = 1e18
+        for a, b, k in segs:
+            dx, dz = b[0] - a[0], b[1] - a[1]; L2 = dx * dx + dz * dz or 1e-9
+            t = max(0, min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / L2))
+            best = min(best, math.hypot(a[0] + dx * t - p[0], a[1] + dz * t - p[1]))
+        return best
+    cands = []
+    for w, (nd, t) in ways.items():
+        if (t.get('railway') == 'platform' or t.get('public_transport') == 'platform') and t.get('name') == cfg['anchor']:
+            q = wpts(nd)
+            if q: cands.append((sum(v[0] for v in q) / len(q), sum(v[1] for v in q) / len(q)))
+    for n, (la, lo, t) in nodes.items():
+        if t.get('railway') == 'station' and t.get('name') == cfg['anchor']: cands.append(XY[n])
+    cands.sort(key=seg_d)
+    near = [c for c in cands if seg_d(c) < seg_d(cands[0]) + 15 and math.hypot(c[0] - cands[0][0], c[1] - cands[0][1]) < 120]
+    pc = [sum(c[0] for c in near) / len(near), sum(c[1] for c in near) / len(near)]
     # касательная пути у станции: ближайший сегмент
     bestd, tang = 1e9, (0, 1)
     for a, b, k in segs:
@@ -213,6 +237,14 @@ def build(area, cfg):
                 cut.append((a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1))
             s += L
         center = resample(cut, 2.0)
+        # продление оси по прямой (конечная станция у края участка: пути дальше — в тупики/депо)
+        e0, e1 = cfg.get('extend', (0, 0))
+        if e1 > 0:
+            (ax, az), (bx, bz) = center[-6], center[-1]; L = math.hypot(bx - ax, bz - az)
+            center += [(bx + (bx - ax) / L * d, bz + (bz - az) / L * d) for d in range(2, int(e1) + 1, 2)]
+        if e0 > 0:
+            (ax, az), (bx, bz) = center[5], center[0]; L = math.hypot(bx - ax, bz - az)
+            center = [(bx + (bx - ax) / L * d, bz + (bz - az) / L * d) for d in range(int(e0), 0, -2)] + center
         # направление «вперёд по линии» (dir 0): по касательной у станции и порядку станций задаётся в игре; ось — от одного портала к другому
         Lc = poly_len(center)
         s_station = nearest_on(center, pc)[1]
@@ -234,6 +266,19 @@ def build(area, cfg):
             else: mb.append([a, b])
         mb = [[round(a, 1), round(b, 1)] for a, b in mb if b - a > 15]
         res['zone'] = {'center': [round(v, 2) for p in center for v in p], 'length': round(Lc, 1), 'station': round(s_station, 1), 'spacing': spacing, 'bridges': mb}
+        # станции линии на оси участка (для длин перегонов)
+        seen_st = {}
+        for n, (la, lo, t) in nodes.items():
+            if t.get('railway') == 'station' and t.get('station') == 'subway' and t.get('name'):
+                d_, s_, q_ = nearest_on(center, XY[n])
+                if d_ < 30 and (t['name'] not in seen_st or d_ < seen_st[t['name']][0]): seen_st[t['name']] = (d_, s_)
+        print(area, 'stations on axis', sorted(((round(v[1]), k) for k, v in seen_st.items())), file=sys.stderr)
+        if cfg.get('crop'):
+            xs, zs = center[0::1], None
+            cx = [p[0] for p in center]; cz = [p[1] for p in center]; mg = cfg['crop']
+            X0, Z0 = max(X0, min(cx) - mg), max(Z0, min(cz) - mg)
+            X1, Z1 = min(X1, max(cx) + mg), min(Z1, max(cz) + mg)
+            res['bounds'] = [round(X0), round(Z0), round(X1), round(Z1)]
         print(area, 'zone', round(Lc), 'm, station at', round(s_station), 'spacing', spacing, 'bridges', mb, file=sys.stderr)
 
     # ---------- растровая карта местности ----------
@@ -292,9 +337,13 @@ def build(area, cfg):
             try: return float(str(t.get('width')).replace(',', '.'))
             except ValueError: return 200 if 'Москва' in t.get('name', '') else 35
         exp_area = 0
+        def inb(p): return X0 <= p[0] <= X1 and Z0 <= p[1] <= Z1
         for w, (nd, t) in ways.items():
             if open_river(t):
-                pts = wpts(nd); exp_area += poly_len(pts) * rw(t) if len(pts) > 1 else 0
+                pts = wpts(nd)
+                # только часть реки внутри карты участка
+                for i in range(len(pts) - 1):
+                    if inb(pts[i]) or inb(pts[i + 1]): exp_area += math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) * rw(t)
         wat_area = sum(1 for v in water.getdata() if v) * PX * PX
         if wat_area > 2.5 * exp_area:
             water = Image.new('L', (W, H), 0); wdr = ImageDraw.Draw(water)
@@ -409,6 +458,7 @@ def build(area, cfg):
             c = centroid(b['ring'])
             ok = any(o is not b and o['h'] >= b['mh'] - 1.5 and o['mh'] < b['mh'] - 0.5 and inside(c, o['ring']) for o in keep)
             if not ok: b['mh'] = 0
+    keep = [b for b in keep if X0 <= centroid(b['ring'])[0] <= X1 and Z0 <= centroid(b['ring'])[1] <= Z1]
     for b in keep:
         blds.append([round(b['h'], 1), round(b['mh'], 1), b['kind'], b['col']] + [int(round(v * 10)) for p in b['ring'] for v in p])
     res['buildings'] = blds
@@ -422,7 +472,8 @@ def build(area, cfg):
     trees = []
     for n, (la, lo, t) in nodes.items():
         if t.get('natural') == 'tree':
-            x, z = XY[n]; trees.append((x, z))
+            x, z = XY[n]
+            if X0 <= x <= X1 and Z0 <= z <= Z1: trees.append((x, z))
     gm = green.load(); wmL = water.load()
     for i in range(int((X1 - X0) * (Z1 - Z0) / 90)):
         x = random.uniform(X0, X1); z = random.uniform(Z0, Z1)

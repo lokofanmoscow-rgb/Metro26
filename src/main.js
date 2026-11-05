@@ -2,7 +2,7 @@
 import { Game, transfersFor } from './game.js';
 import { MetroMap } from './ui/map.js';
 import { SCHEME } from './data/scheme.js';
-import { LINES, PLAYABLE, TRAINS } from './data/lines.js';
+import { LINES, PLAYABLE, TRAINS, lineDirs } from './data/lines.js';
 import { LIVERY } from './engine/train.js';
 import { fmtTime } from './engine/util.js';
 import { loadHQ } from './engine/hq.js';
@@ -144,7 +144,7 @@ function renderLines() {
     b.className = 'line-btn' + (playable ? '' : ' off') + (sel.line === l.id ? ' sel' : '');
     b.innerHTML = `${lineBadge(l)}<span>${l.name.replace(/ линия$/i, '').replace(/ Линия$/, '')}${playable ? '' : '<span class="soon">скоро</span>'}</span>`;
     b.title = playable ? l.name : `${l.name} — в разработке`;
-    if (playable) b.onclick = () => { sel.line = l.id; sel.startK = 0; renderLines(); renderDirs(); refreshShowroom(); };
+    if (playable) b.onclick = () => { sel.line = l.id; sel.startK = 0; if (sel.dir >= lineDirs(l.id).length) sel.dir = 0; renderLines(); renderDirs(); refreshShowroom(); };
     box.appendChild(b);
   }
 }
@@ -152,23 +152,24 @@ function renderLines() {
 function renderDirs() {
   if ($('stName')) renderStation();
   const L = LINES[sel.line];
-  const a = L.stations[0].n, b = L.stations[L.stations.length - 1].n;
+  const dirs = lineDirs(sel.line);
+  if (sel.dir >= dirs.length) sel.dir = 0;
   $('dirList').innerHTML = '';
-  [[0, `${a} → ${b}`], [1, `${b} → ${a}`]].forEach(([d, txt]) => {
+  dirs.map((x) => [x.dir, `${x.from} → ${x.to}`]).forEach(([d, txt]) => {
     const e = document.createElement('button');
     e.className = 'dir-btn' + (sel.dir === d ? ' sel' : '');
     e.textContent = txt;
     e.onclick = () => { sel.dir = d; sel.startK = 0; renderDirs(); refreshShowroom(); };
     $('dirList').appendChild(e);
   });
-  const st = L.stations;
-  $('menuInfo').innerHTML = `${lineBadge(L)} <b>${L.name}</b><br>${st.length} станций · ${(st.reduce((t, s) => t + s.d, 0) / 1000).toFixed(1)} км<br><span style="color:#9aa3ad">Станции построены по описаниям оформления из Википедии: тип конструкции, облицовка стен, колонн и пола.</span>`;
+  const st = dirs[sel.dir].line.stations;
+  $('menuInfo').innerHTML = `${lineBadge(L)} <b>${L.name}</b><br>${st.length} станций · ${(st.reduce((t, s) => t + s.d, 0) / 1000).toFixed(1)} км${L.branch ? ' · развилка за станцией «' + L.branch.at + '»' : ''}<br><span style="color:#9aa3ad">Станции построены по описаниям оформления из Википедии: тип конструкции, облицовка стен, колонн и пола.</span>`;
 }
 
 // станции выбранной линии в порядке выбранного направления
 function dirStations() {
-  const st = LINES[sel.line].stations;
-  return sel.dir === 0 ? st : [...st].reverse();
+  const dirs = lineDirs(sel.line);
+  return (dirs[sel.dir] || dirs[0]).stations;
 }
 
 function trBadges(sid) {
@@ -279,8 +280,8 @@ function pause(on) {
 function slotTitle(rec) {
   if (!rec) return null;
   const d = rec.data, L = LINES[d.line];
-  const R = L.stations;
-  const to = d.dir === 0 ? R[R.length - 1].n : R[0].n;
+  const dd = lineDirs(d.line);
+  const to = (dd[d.dir] || dd[0]).to;
   return { html: `${lineBadge(L)} <b>→ ${to}</b><span>${TRAINS[d.train].short} · след.: ${d.next || '—'} · очки ${Math.round(d.stats.score)} · ${new Date(rec.date).toLocaleString('ru-RU')}</span>` };
 }
 

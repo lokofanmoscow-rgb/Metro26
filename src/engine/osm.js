@@ -25,6 +25,18 @@ import sal from '../assets/osm/sal.json';
 import salG from '../assets/osm/sal_ground.jpg';
 import salW from '../assets/osm/sal_water.png';
 import luzhW from '../assets/osm/luzh_water.png';
+import fsmol from '../assets/osm/fsmol.json';
+import fsmolG from '../assets/osm/fsmol_ground.jpg';
+import fsmolW from '../assets/osm/fsmol_water.png';
+import fstud from '../assets/osm/fstud.json';
+import fstudG from '../assets/osm/fstud_ground.jpg';
+import fstudW from '../assets/osm/fstud_water.png';
+import fkut from '../assets/osm/fkut.json';
+import fkutG from '../assets/osm/fkut_ground.jpg';
+import fkutW from '../assets/osm/fkut_water.png';
+import ffili from '../assets/osm/ffili.json';
+import ffiliG from '../assets/osm/ffili_ground.jpg';
+import ffiliW from '../assets/osm/ffili_water.png';
 
 export const OSM = {
   nag: { data: nag, ground: nagG, water: nagW },
@@ -34,6 +46,10 @@ export const OSM = {
   kunc: { data: kunc, ground: kuncG, water: kuncW },
   izm: { data: izm, ground: izmG, water: izmW },
   sal: { data: sal, ground: salG, water: salW },
+  fsmol: { data: fsmol, ground: fsmolG, water: fsmolW },
+  fstud: { data: fstud, ground: fstudG, water: fstudW },
+  fkut: { data: fkut, ground: fkutG, water: fkutW },
+  ffili: { data: ffili, ground: ffiliG, water: ffiliW },
 };
 
 // Сглаживание оси участка: в данных OSM встречаются изломы (стыки путей), а в метро радиусы
@@ -200,6 +216,8 @@ export function frameMatrix(beta, px, pz, wx, wy, wz) {
 // Ячейка текстуры — 4 окна × 4 этажа (12 × 12,4 м). Виды: 0 — панельный дом, 1 — кирпичный,
 // 2 — стекло (офисы), 3 — промышленный, 4 — исторический (штукатурка, высокие окна), 5 — первый этаж.
 let FAC = null;
+// текстура фасада (виды — см. выше) — для зданий, встроенных в сооружения метро
+export function facadeTexture(kind = 0) { return facades()[kind]; }
 function facades() {
   if (FAC) return FAC;
   const S = 512, CW = S / 4, CH = S / 4;

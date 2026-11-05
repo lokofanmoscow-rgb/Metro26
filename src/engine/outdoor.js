@@ -5,7 +5,7 @@ import { buildTrack, sharedMats, TUBE_R, TUBE_CY, BED_Y } from './tunnel.js';
 import { grassTexture, ballastTexture, buildingTexture, concreteTexture } from './textures.js';
 import { mergeGeoms, boxGeom, cylGeom, mulberry32, hashStr } from './util.js';
 import { HALL_HALF, BRIDGE_RISE } from './route.js';
-import { buildOsmEnv, buildOsmEnvSteps, corridorIndex, GROUND_Y } from './osm.js';
+import { buildOsmEnv, buildOsmEnvSteps, corridorIndex, GROUND_Y, facadeTexture } from './osm.js';
 
 const OPP_X = -12.96;
 
@@ -67,7 +67,7 @@ function buildings(route, s0, s1, rng, step) {
 // Портал тоннеля: стенка с проёмом и насыпь/склон над тоннелем
 export function buildPortal(route, s, facingForward, cut) {
   const Z = cut.zone || {};
-  if (Z.osm && (Z.kind === 'open' || Z.kind === 'gallery')) return osmPortal(route, s, facingForward, Z.oppX, Z.pd <= 0.5);
+  if (Z.osm && (Z.kind === 'open' || Z.kind === 'gallery')) return osmPortal(route, s, facingForward, Z.oppX, (facingForward ? Z.pd1 ?? Z.pd : Z.pd0 ?? Z.pd) <= 0.5, Z.portalBuilding);
   const kind = cut.out, ox = Z.oppX ?? OPP_X;
   const grp = new THREE.Group();
   const sh = new THREE.Shape();
@@ -101,7 +101,7 @@ export function buildPortal(route, s, facingForward, cut) {
 }
 
 // Портал двухпутного тоннеля в торце выемки (путь ниже уровня земли)
-function osmPortal(route, s, facingForward, ox, hill = false) {
+function osmPortal(route, s, facingForward, ox, hill = false, building = false) {
   const grp = new THREE.Group();
   const gy = GROUND_Y - route.y(s); // земля над порталом (локально)
   const xr = 3.0, xl = ox - 3.0, top = hill ? 4.9 : Math.min(4.9, gy - 0.4);
@@ -144,7 +144,29 @@ function osmPortal(route, s, facingForward, ox, hill = false) {
   // встречный путь уходит в свой тоннель
   const a0 = facingForward ? s + D - 0.5 : s - D - 120, a1 = facingForward ? s + D + 120 : s - D + 0.5;
   const tm = new THREE.MeshLambertMaterial({ color: 0x2c2a26, side: THREE.DoubleSide });
-  if (hill) {
+  if (hill && building) {
+    // пути уходят под жилой дом (подходы к Смоленскому метромосту): портал в цоколе здания
+    const W = X1 - X0 + 22, Hb = 24, Db = 26, xc = (X0 + X1) / 2;
+    const fm = new THREE.MeshLambertMaterial({ map: facadeTexture(4), color: 0xe9e2d2 });
+    fm.map = fm.map.clone(); fm.map.wrapS = fm.map.wrapT = THREE.RepeatWrapping; fm.map.repeat.set(W / 12, Hb / 12.4); fm.map.needsUpdate = true;
+    const roofM = new THREE.MeshLambertMaterial({ color: 0x5f5a54 });
+    const hidden = new THREE.MeshBasicMaterial({ visible: false });
+    // коробка без передней и нижней граней; перед — фасад с проёмом портала
+    const bm = [fm, fm, roofM, hidden, hidden, hidden];
+    bm[dir > 0 ? 4 : 5] = fm; // задний фасад
+    const hb = new THREE.Mesh(boxGeom(W, Hb + 1, Db, xc, gy + Hb / 2 - 0.5, dir * (Db / 2 + 0.05)), bm);
+    const fs = new THREE.Shape();
+    fs.moveTo(xc - W / 2, gy - 1); fs.lineTo(xc + W / 2, gy - 1); fs.lineTo(xc + W / 2, gy + Hb); fs.lineTo(xc - W / 2, gy + Hb); fs.lineTo(xc - W / 2, gy - 1);
+    const fh = new THREE.Path(); fh.moveTo(X0, Y0); fh.lineTo(X1, Y0); fh.lineTo(X1, Y1); fh.lineTo(X0, Y1); fh.lineTo(X0, Y0); fs.holes.push(fh);
+    const fg = new THREE.ShapeGeometry(fs, 1);
+    const fuv = fg.attributes.uv; for (let i = 0; i < fuv.count; i++) fuv.setXY(i, (fuv.getX(i) - (xc - W / 2)) / 12, (fuv.getY(i) - gy) / 12.4);
+    const fmF = fm.clone(); fmF.map = fm.map.clone(); fmF.map.repeat.set(1, 1); fmF.map.needsUpdate = true; fmF.side = THREE.DoubleSide;
+    hb.add(new THREE.Mesh(fg.translate(0, 0, 0.02 * dir), fmF));
+    // карниз и цоколь
+    hb.add(new THREE.Mesh(mergeGeoms([boxGeom(W + 0.6, 0.6, 0.8, xc, gy + Hb, 0.2 * dir), boxGeom(W + 0.2, 1.2, 0.3, xc, gy + 0.1, 0.1 * dir)]), roofM));
+    hb.applyMatrix4(route.matrixAt(s, new THREE.Matrix4(), true));
+    grp.userData.hill = hb;
+  } else if (hill) {
     // путь выходит из тоннеля на уровне земли: портал врезан в насыпной холм (без передней грани)
     const gm = new THREE.MeshLambertMaterial({ map: grassTexture(), color: 0x7f9a5a });
     gm.map.repeat.set(8, 8);

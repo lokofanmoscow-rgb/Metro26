@@ -1,7 +1,7 @@
 import { transfersFor, arrivalText, departText, TERMINAL_TEXT } from './engine/announce.js';
 // Ядро игры: сцена, подгрузка мира по ходу движения, физика поезда, станции, камеры.
 import * as THREE from 'three';
-import { Route } from './engine/route.js';
+import { Route, FORK_FIX } from './engine/route.js';
 import { buildTunnelChunk, buildTransitionRing } from './engine/tunnel.js';
 import { buildStation, buildStationSteps } from './engine/station.js';
 import { buildOutdoorChunk, buildOutdoorEnvSteps, buildPortal, buildSky } from './engine/outdoor.js';
@@ -16,7 +16,8 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { disposeObject, clamp, lerp, fmtTime, mulberry32 } from './engine/util.js';
-import { LINES, TRAINS } from './data/lines.js';
+import { LINES, TRAINS, resolveDir, reverseDir } from './data/lines.js';
+import { buildFork } from './engine/fork.js';
 import { SCHEME } from './data/scheme.js';
 
 const CHUNK = 200;
@@ -129,13 +130,17 @@ export class Game {
   setup({ line, dir = 0, train = '717', s = null, v = 0, state = null, showroom = false, startK = 0 }) {
     this._clearWorld();
     this.lineId = line;
-    this.line = LINES[line];
+    if (!LINES[line].branch && dir > 1) dir = 1;
+    const V = resolveDir(line, dir);
+    this.line = V.line; // маршрут линии (у линии с ответвлением — один из двух)
     this.dir = dir;
     this.trainId = train;
-    this.route = new Route(this.line, dir);
+    this.route = new Route(this.line, V.d);
+    // второй маршрут — для развилки (его путь виден, где линия делится)
+    this.ghost = this.route.fork && this.line.fork.ghost ? new Route(this.line.fork.ghost, V.d) : null;
     const R = this.route;
     // тяжёлые текстуры детальных станций — сразу при старте рейса, а не при подъезде к станции
-    if (!showroom) warmHQ((st) => buildStation(R, st, LINES[line]), R.stations);
+    if (!showroom) warmHQ((st) => buildStation(R, st, this.line), R.stations);
     const first = R.stations[0];
     const last = R.stations[R.stations.length - 1];
     if (this.train) { this.scene.remove(this.train.group); this.train.dispose(); }
@@ -230,6 +235,7 @@ export class Game {
     R.zones.forEach((z, zi) => {
       if (z.s1 < lo || z.s0 > hi) return;
       if (z.kind === 'station') return;
+      if (z.kind === 'fork') { if (this.ghost) need.set(`fk:${zi}`, { kind: 'fk', a: z.s0, b: z.s1 }); return; }
       const c0 = Math.floor(Math.max(z.s0, lo) / CHUNK), c1 = Math.floor(Math.min(z.s1, hi) / CHUNK);
       for (let c = c0; c <= c1; c++) {
         const a = Math.max(z.s0, c * CHUNK), b = Math.min(z.s1, (c + 1) * CHUNK);
@@ -270,6 +276,7 @@ export class Game {
       (this.pending || (this.pending = [])).push(it);
       return;
     }
+    else if (it.kind === 'fk') obj = buildFork(R, this.ghost);
     else if (it.kind === 'po') obj = buildPortal(R, it.at, it.fwd, it.zone);
     else if (it.kind === 'tr') obj = buildTransitionRing(R, it.at);
     if (!obj) return;
@@ -539,7 +546,7 @@ export class Game {
   // обратный рейс
   turnaround() {
     const st = { stats: this.stats, gameTime: this.gameTime, elapsed: this.elapsed };
-    this.setup({ line: this.lineId, dir: 1 - this.dir, train: this.trainId, state: st });
+    this.setup({ line: this.lineId, dir: reverseDir(this.lineId, this.dir), train: this.trainId, state: st });
     const R = this.route;
     this.s = R.stations[0].stop;
     this.train.update(R, this.s);
@@ -870,10 +877,13 @@ export class Game {
     // поезд едет по встречному пути (по настоящей оси трассы) в сторону +Z локальной системы станции
     const R = this.route;
     const flip = _flip;
+    // у развилки встречный путь (в своём тоннеле) пересекает уходящий тоннель второго пути — там поезд не показываем
+    const F = R.fork, Al = R._forkAl;
+    const inFork = (x) => !!(F && Al && Al.side < 0 && (x - F.J) * F.sg > -5 && (x - F.J) * F.sg < FORK_FIX + 10);
     a.train.placeSections((sc) => {
       const zc = a.z - sc.off - sc.Lb / 2;
       const s = a.st.c - zc;
-      sc.group.visible = Math.abs(zc) < 1600 && s > 0 && s < R.length;
+      sc.group.visible = Math.abs(zc) < 1600 && s > 0 && s < R.length && !inFork(s);
       const m = R.matrixAt(Math.max(0, Math.min(R.length, s)), new THREE.Matrix4());
       return m.multiply(_tmpM.makeTranslation(this._oppXAt(s, a.st), 0, 0)).multiply(flip);
     });

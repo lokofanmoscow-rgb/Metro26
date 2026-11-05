@@ -804,7 +804,7 @@ function buildSideStation(route, st, line) {
   const xP0 = EDGE_X - SIDE_W, xP1 = EDGE_X; // наша платформа
   const xQ0 = S + 1.48, xQ1 = S + 1.48 + SIDE_W; // встречная
   const xW0 = xP0 - 0.15, xW1 = xQ1 + 0.15;
-  const ceilY = 6.0, roofY = 9.2, glassY = PLAT_Y + 3.0;
+  const ceilY = style.open ? PLAT_Y + 3.6 : 6.0, roofY = 9.2, glassY = PLAT_Y + 3.0;
   const GY = GROUND_Y;
   // детальный вариант (фото-текстуры и PBR): гранит, металлик, глянцевые вставки, открытая решётка потолка
   const hqOn = !!(style.hq && HQ.ready && HQ.renderer);
@@ -833,95 +833,138 @@ function buildSideStation(route, st, line) {
   ]), conc));
   grp.add(new THREE.Mesh(mergeGeoms([planeY(PLAT_Y + 0.003, xP1 - 0.35, xP1, -PL, PL, true, 1, 1), planeY(PLAT_Y + 0.003, xQ0, xQ0 + 0.35, -PL, PL, true, 1, 1)]), edgeMat));
   grp.add(new THREE.Mesh(mergeGeoms([planeY(PLAT_Y + 0.005, xP1 - 0.95, xP1 - 0.6, -PL, PL, true, 1, 1), planeY(PLAT_Y + 0.005, xQ0 + 0.6, xQ0 + 0.95, -PL, PL, true, 1, 1)]), new THREE.MeshLambertMaterial({ color: 0xe8c22a, emissive: 0x3a3008 })));
-  // наружные стены: сайдинг снизу, остекление сверху
-  grp.add(new THREE.Mesh(mergeGeoms([
-    wallX(xW0, GY, glassY, -HZ, HZ, 1, 3), wallX(xW1, GY, glassY, -HZ, HZ, -1, 3),
-  ]), siding));
-  grp.add(new THREE.Mesh(mergeGeoms([wallX(xW0, glassY, ceilY + 0.6, -HZ, HZ, 1), wallX(xW1, glassY, ceilY + 0.6, -HZ, HZ, -1)]), glass));
-  const mull = [];
-  for (let z = -HZ; z <= HZ; z += 3) mull.push(boxGeom(0.1, ceilY + 0.6 - glassY, 0.1, xW0, (glassY + ceilY + 0.6) / 2, z), boxGeom(0.1, ceilY + 0.6 - glassY, 0.1, xW1, (glassY + ceilY + 0.6) / 2, z));
-  mull.push(boxGeom(0.14, 0.14, 2 * HZ, xW0, glassY, 0), boxGeom(0.14, 0.14, 2 * HZ, xW1, glassY, 0));
-  grp.add(new THREE.Mesh(mergeGeoms(mull), steel));
-  // колонны в сайдинге
-  const cols = [], cz = [];
-  for (let z = -72; z <= 72; z += 9) cz.push(z);
-  for (const z of cz) for (const x of [xP0 + 1.3, xQ1 - 1.3]) cols.push(boxGeom(0.55, ceilY - PLAT_Y, 0.55, x, (ceilY + PLAT_Y) / 2, z));
-  grp.add(new THREE.Mesh(mergeGeoms(cols), siding));
-  // подвесной потолок из решёток с фиолетовыми вставками у каждой второй колонны; проём над лестницей
-  const ceil = [];
-  const GU = hqOn ? 1.2 : 3; // решётка: ячейки 15 см (8 на 1,2 м)
-  const stairX0 = xP0 + 0.3, stairX1 = xP0 + 2.9, stairZ0 = 3.5, stairZ1 = 12.5;
-  for (const [a, b] of [[xP0, xP1 + 0.4], [xQ0 - 0.4, xQ1]]) {
-    ceil.push(planeY(ceilY, a, b, -HZ, -3.5, false, GU, GU), planeY(ceilY, a, b, stairZ1, HZ, false, GU, GU));
-  }
-  ceil.push(planeY(ceilY, stairX1, xP1 + 0.4, 3.5, stairZ1, false, GU, GU), planeY(ceilY, xQ0 - 0.4, xQ1 - 2.9, 3.5, stairZ1, false, GU, GU), planeY(ceilY, xP0, stairX0, 3.5, stairZ1, false, GU, GU), planeY(ceilY, xQ1 - 0.3, xQ1, 3.5, stairZ1, false, GU, GU));
-  grp.add(new THREE.Mesh(mergeGeoms(ceil), grate));
-  const ins = [];
-  cz.forEach((z, i) => { if (i % 2 === 0 && Math.abs(z) > 14) for (const x of [xP0 + 2.6, xQ1 - 2.6]) ins.push(boxGeom(4.2, 0.18, 4.2, x, ceilY - 0.1, z)); });
-  for (const x of [(xP0 + xP1) / 2, (xQ0 + xQ1) / 2]) ins.push(boxGeom(SIDE_W - 0.3, 0.22, 2.2, x, ceilY - 0.12, -5.0), boxGeom(SIDE_W - 0.3, 0.22, 2.2, x, ceilY - 0.12, 14.2));
-  grp.add(new THREE.Mesh(mergeGeoms(ins), purple));
-  // светильники-полосы в потолке
-  const lamps = [];
-  if (hqOn) {
-    // сплошные светодиодные линии вдоль платформ (с разрывом у лестниц)
-    for (const x of [xP1 - 1.1, xP0 + 2.4, xQ0 + 1.1, xQ1 - 2.4]) for (const [z0, z1] of [[-HZ + 2, -4.5], [13.5, HZ - 2]]) lamps.push(boxGeom(0.1, 0.05, z1 - z0, x, ceilY - 0.06, (z0 + z1) / 2));
-    grp.add(new THREE.Mesh(mergeGeoms(lamps), lampMat(4.2, 0xfdfbf4)));
-    // тёмное перекрытие над решёткой
-    grp.add(new THREE.Mesh(mergeGeoms([planeY(ceilY + 0.45, xW0, xP1 + 0.4, -HZ, HZ, false), planeY(ceilY + 0.45, xQ0 - 0.4, xW1, -HZ, HZ, false)]), pbr({ color: 0x1d1f22, roughness: 0.8, emissive: 0.0, side: THREE.DoubleSide })));
-  } else {
-    for (let z = -78; z <= 78; z += 6) for (const x of [xP1 - 1.6, xQ0 + 1.6]) if (!(z > -4 && z < 13)) lamps.push(boxGeom(0.18, 0.04, 2.6, x, ceilY - 0.03, z));
+  if (style.open) {
+    // открытая станция 1950-х («Студенческая», «Кутузовская», «Фили»): у каждой платформы —
+    // глухая стена с витражами и навес на колоннах; над путями — открытое небо
+    const roofY = ceilY;
+    grp.add(new THREE.Mesh(mergeGeoms([wallX(xW0, GY, PLAT_Y + 1.1, -PL, PL, 1, 3), wallX(xW1, GY, PLAT_Y + 1.1, -PL, PL, -1, 3)]), conc));
+    grp.add(new THREE.Mesh(mergeGeoms([wallX(xW0, PLAT_Y + 1.1, roofY, -PL, PL, 1), wallX(xW1, PLAT_Y + 1.1, roofY, -PL, PL, -1)]), glass));
+    const mull = [];
+    for (let z = -PL; z <= PL; z += 2.25) mull.push(boxGeom(0.08, roofY - PLAT_Y - 1.1, 0.08, xW0, (PLAT_Y + 1.1 + roofY) / 2, z), boxGeom(0.08, roofY - PLAT_Y - 1.1, 0.08, xW1, (PLAT_Y + 1.1 + roofY) / 2, z));
+    for (const y of [PLAT_Y + 1.1, PLAT_Y + 2.4]) mull.push(boxGeom(0.1, 0.1, 2 * PL, xW0, y, 0), boxGeom(0.1, 0.1, 2 * PL, xW1, y, 0));
+    grp.add(new THREE.Mesh(mergeGeoms(mull), steel));
+    // цветные вставки витражей (как после реконструкции)
+    const acc = [];
+    for (let z = -PL + 6; z < PL - 6; z += 13.5) for (const [x, o] of [[xW0 + 0.04, 1], [xW1 - 0.04, -1]]) acc.push(wallX(x, PLAT_Y + 1.25, PLAT_Y + 2.3, z, z + 4.5, o));
+    grp.add(new THREE.Mesh(mergeGeoms(acc), purple));
+    // навесы: плита на ряду колонн у стены, консоль над краем платформы
+    const cols = [], slab = [];
+    for (let z = -PL + 4; z <= PL - 4; z += 6.5) for (const x of [xP0 + 1.4, xQ1 - 1.4]) cols.push(boxGeom(0.4, roofY - PLAT_Y, 0.4, x, (roofY + PLAT_Y) / 2, z));
+    grp.add(new THREE.Mesh(mergeGeoms(cols), siding));
+    slab.push(boxGeom(xP1 + 0.5 - xW0, 0.26, 2 * PL, (xW0 + xP1 + 0.5) / 2, roofY + 0.13, 0), boxGeom(xW1 - xQ0 + 0.5, 0.26, 2 * PL, (xQ0 - 0.5 + xW1) / 2, roofY + 0.13, 0));
+    slab.push(boxGeom(0.14, 0.45, 2 * PL, xP1 + 0.45, roofY - 0.1, 0), boxGeom(0.14, 0.45, 2 * PL, xQ0 - 0.45, roofY - 0.1, 0));
+    grp.add(new THREE.Mesh(mergeGeoms(slab), conc));
+    const lamps = [];
+    for (let z = -PL + 5; z < PL - 4; z += 5) for (const x of [xP1 - 1.4, xQ0 + 1.4]) lamps.push(boxGeom(0.2, 0.04, 1.4, x, roofY - 0.02, z));
     grp.add(new THREE.Mesh(mergeGeoms(lamps), new THREE.MeshBasicMaterial({ color: 0xfff6e6 })));
-  }
-  // крыша: над платформами — глухая, над путями — стеклянная
-  grp.add(new THREE.Mesh(mergeGeoms([planeY(ceilY + 0.7, xW0, xP1 + 0.4, -HZ, HZ, true, 4, 4), planeY(ceilY + 0.7, xQ0 - 0.4, xW1, -HZ, HZ, true, 4, 4)]), new THREE.MeshLambertMaterial({ color: 0x8d9195, side: THREE.DoubleSide })));
-  grp.add(new THREE.Mesh(mergeGeoms([wallX(xP1 + 0.4, ceilY, roofY, -HZ, HZ, 1), wallX(xQ0 - 0.4, ceilY, roofY, -HZ, HZ, -1)]), siding));
-  grp.add(new THREE.Mesh(planeY(roofY, xP1 + 0.4, xQ0 - 0.4, -HZ, HZ, false), glass));
-  const rf = [];
-  for (let z = -HZ; z <= HZ; z += 4) rf.push(boxGeom(xQ0 - xP1 - 0.8, 0.22, 0.14, (xP1 + xQ0) / 2, roofY - 0.11, z));
-  rf.push(boxGeom(0.16, 0.22, 2 * HZ, (xP1 + xQ0) / 2, roofY - 0.11, 0));
-  if (hqOn) {
-    // пространственные фермы: нижние пояса и раскосы
-    const xa = xP1 + 0.9, xb = xQ0 - 0.9, yb = roofY - 1.3;
-    rf.push(boxGeom(0.12, 0.12, 2 * HZ, xa, yb, 0), boxGeom(0.12, 0.12, 2 * HZ, xb, yb, 0));
-    for (let z = -HZ; z < HZ; z += 4) for (const x of [xa, xb]) for (const d of [1, -1]) {
-      const L = Math.hypot(2, 1.2);
-      const g = boxGeom(0.07, 0.07, L, 0, 0, 0);
-      g.rotateX(d * Math.atan2(1.2, 2)); g.translate(x, yb + 0.6, z + 1 + d * 0 + (d > 0 ? 0 : 2) - 1);
-      rf.push(g);
+    // остеклённые вестибюли в торцах платформ (выходы)
+    const vest = [], vroof = [];
+    for (const e of [-1, 1]) {
+      const zIn = e * (PL - 9), zOut = e * PL;
+      for (const [x0, x1, xe] of [[xW0, xP1 - 1.2, xP1 - 1.2], [xQ0 + 1.2, xW1, xQ0 + 1.2]]) {
+        vest.push(wallZ(x0, x1, PLAT_Y, roofY, zIn), wallX(xe, PLAT_Y, roofY, Math.min(zIn, zOut), Math.max(zIn, zOut), 1));
+        vroof.push(boxGeom(0.12, 0.12, PL - (PL - 9), xe, roofY - 0.06, (zIn + zOut) / 2));
+      }
     }
-  }
-  grp.add(new THREE.Mesh(mergeGeoms(rf), steel));
-  // фронтоны над путями в торцах павильона
-  grp.add(new THREE.Mesh(mergeGeoms([wallZ(xP1 + 0.4, xQ0 - 0.4, 5.2, roofY, -HZ), wallZ(xP1 + 0.4, xQ0 - 0.4, 5.2, roofY, HZ), wallZ(xW0, xP1 + 0.4, ceilY, ceilY + 0.7, -HZ), wallZ(xW0, xP1 + 0.4, ceilY, ceilY + 0.7, HZ), wallZ(xQ0 - 0.4, xW1, ceilY, ceilY + 0.7, -HZ), wallZ(xQ0 - 0.4, xW1, ceilY, ceilY + 0.7, HZ)]), siding));
-  // торцы платформ: остеклённые стены
-  grp.add(new THREE.Mesh(mergeGeoms([wallZ(xW0, xP1 - 0.2, PLAT_Y, ceilY, -PL - 0.2), wallZ(xW0, xP1 - 0.2, PLAT_Y, ceilY, PL + 0.2), wallZ(xQ0 + 0.2, xW1, PLAT_Y, ceilY, -PL - 0.2), wallZ(xQ0 + 0.2, xW1, PLAT_Y, ceilY, PL + 0.2)]), glass));
-  // пешеходный мост между платформами и лестницы на него
-  const deckY = 6.0, bz = 3.5;
-  grp.add(new THREE.Mesh(mergeGeoms([planeY(deckY, xP0, xQ1, -bz, bz, true, 2, 2), planeY(deckY - 0.5, xP0, xQ1, -bz, bz, false, 2, 2)]), floorMat));
-  grp.add(new THREE.Mesh(mergeGeoms([wallZ(xP1 + 0.4, xQ0 - 0.4, deckY - 0.5, deckY, -bz), wallZ(xP1 + 0.4, xQ0 - 0.4, deckY - 0.5, deckY, bz)]), steel));
-  grp.add(new THREE.Mesh(mergeGeoms([wallZ(xP1 + 0.4, xQ0 - 0.4, deckY, deckY + 2.6, -bz), wallZ(xP1 + 0.4, xQ0 - 0.4, deckY, deckY + 2.6, bz)]), glass));
-  grp.add(new THREE.Mesh(planeY(deckY + 2.7, xP1 + 0.4, xQ0 - 0.4, -bz, bz, false), siding));
-  const stairs = [];
-  const steps = 18;
-  for (const [x0, x1] of [[stairX0, stairX1], [xQ1 - 2.9, xQ1 - 0.3]]) {
-    for (let i = 0; i < steps; i++) {
-      const y = PLAT_Y + (deckY - PLAT_Y) * (i + 1) / steps;
-      const z = stairZ1 - (stairZ1 - stairZ0) * (i + 0.5) / steps;
-      stairs.push(boxGeom(x1 - x0, (deckY - PLAT_Y) / steps, (stairZ1 - stairZ0) / steps, (x0 + x1) / 2, y - (deckY - PLAT_Y) / steps / 2, z));
+    grp.add(new THREE.Mesh(mergeGeoms(vest), glass));
+    grp.add(new THREE.Mesh(mergeGeoms(vroof), steel));
+    // скамейки
+    const bs = [];
+    for (let z = -PL + 14; z < PL - 12; z += 18) bs.push(boxGeom(0.5, 0.45, 2.4, xP0 + 2.6, PLAT_Y + 0.22, z), boxGeom(0.5, 0.45, 2.4, xQ1 - 2.6, PLAT_Y + 0.22, z));
+    grp.add(new THREE.Mesh(mergeGeoms(bs), new THREE.MeshLambertMaterial({ color: 0x6b4a32 })));
+    info.stairs = [];
+    info.exits.push({ x: (xP0 + xP1) / 2, z: -PL + 3, y: PLAT_Y }, { x: (xP0 + xP1) / 2, z: PL - 3, y: PLAT_Y });
+  } else {
+  // наружные стены: сайдинг снизу, остекление сверху
+    grp.add(new THREE.Mesh(mergeGeoms([
+      wallX(xW0, GY, glassY, -HZ, HZ, 1, 3), wallX(xW1, GY, glassY, -HZ, HZ, -1, 3),
+    ]), siding));
+    grp.add(new THREE.Mesh(mergeGeoms([wallX(xW0, glassY, ceilY + 0.6, -HZ, HZ, 1), wallX(xW1, glassY, ceilY + 0.6, -HZ, HZ, -1)]), glass));
+    const mull = [];
+    for (let z = -HZ; z <= HZ; z += 3) mull.push(boxGeom(0.1, ceilY + 0.6 - glassY, 0.1, xW0, (glassY + ceilY + 0.6) / 2, z), boxGeom(0.1, ceilY + 0.6 - glassY, 0.1, xW1, (glassY + ceilY + 0.6) / 2, z));
+    mull.push(boxGeom(0.14, 0.14, 2 * HZ, xW0, glassY, 0), boxGeom(0.14, 0.14, 2 * HZ, xW1, glassY, 0));
+    grp.add(new THREE.Mesh(mergeGeoms(mull), steel));
+    // колонны в сайдинге
+    const cols = [], cz = [];
+    for (let z = -72; z <= 72; z += 9) cz.push(z);
+    for (const z of cz) for (const x of [xP0 + 1.3, xQ1 - 1.3]) cols.push(boxGeom(0.55, ceilY - PLAT_Y, 0.55, x, (ceilY + PLAT_Y) / 2, z));
+    grp.add(new THREE.Mesh(mergeGeoms(cols), siding));
+    // подвесной потолок из решёток с фиолетовыми вставками у каждой второй колонны; проём над лестницей
+    const ceil = [];
+    const GU = hqOn ? 1.2 : 3; // решётка: ячейки 15 см (8 на 1,2 м)
+    const stairX0 = xP0 + 0.3, stairX1 = xP0 + 2.9, stairZ0 = 3.5, stairZ1 = 12.5;
+    for (const [a, b] of [[xP0, xP1 + 0.4], [xQ0 - 0.4, xQ1]]) {
+      ceil.push(planeY(ceilY, a, b, -HZ, -3.5, false, GU, GU), planeY(ceilY, a, b, stairZ1, HZ, false, GU, GU));
     }
+    ceil.push(planeY(ceilY, stairX1, xP1 + 0.4, 3.5, stairZ1, false, GU, GU), planeY(ceilY, xQ0 - 0.4, xQ1 - 2.9, 3.5, stairZ1, false, GU, GU), planeY(ceilY, xP0, stairX0, 3.5, stairZ1, false, GU, GU), planeY(ceilY, xQ1 - 0.3, xQ1, 3.5, stairZ1, false, GU, GU));
+    grp.add(new THREE.Mesh(mergeGeoms(ceil), grate));
+    const ins = [];
+    cz.forEach((z, i) => { if (i % 2 === 0 && Math.abs(z) > 14) for (const x of [xP0 + 2.6, xQ1 - 2.6]) ins.push(boxGeom(4.2, 0.18, 4.2, x, ceilY - 0.1, z)); });
+    for (const x of [(xP0 + xP1) / 2, (xQ0 + xQ1) / 2]) ins.push(boxGeom(SIDE_W - 0.3, 0.22, 2.2, x, ceilY - 0.12, -5.0), boxGeom(SIDE_W - 0.3, 0.22, 2.2, x, ceilY - 0.12, 14.2));
+    grp.add(new THREE.Mesh(mergeGeoms(ins), purple));
+    // светильники-полосы в потолке
+    const lamps = [];
+    if (hqOn) {
+      // сплошные светодиодные линии вдоль платформ (с разрывом у лестниц)
+      for (const x of [xP1 - 1.1, xP0 + 2.4, xQ0 + 1.1, xQ1 - 2.4]) for (const [z0, z1] of [[-HZ + 2, -4.5], [13.5, HZ - 2]]) lamps.push(boxGeom(0.1, 0.05, z1 - z0, x, ceilY - 0.06, (z0 + z1) / 2));
+      grp.add(new THREE.Mesh(mergeGeoms(lamps), lampMat(4.2, 0xfdfbf4)));
+      // тёмное перекрытие над решёткой
+      grp.add(new THREE.Mesh(mergeGeoms([planeY(ceilY + 0.45, xW0, xP1 + 0.4, -HZ, HZ, false), planeY(ceilY + 0.45, xQ0 - 0.4, xW1, -HZ, HZ, false)]), pbr({ color: 0x1d1f22, roughness: 0.8, emissive: 0.0, side: THREE.DoubleSide })));
+    } else {
+      for (let z = -78; z <= 78; z += 6) for (const x of [xP1 - 1.6, xQ0 + 1.6]) if (!(z > -4 && z < 13)) lamps.push(boxGeom(0.18, 0.04, 2.6, x, ceilY - 0.03, z));
+      grp.add(new THREE.Mesh(mergeGeoms(lamps), new THREE.MeshBasicMaterial({ color: 0xfff6e6 })));
+    }
+    // крыша: над платформами — глухая, над путями — стеклянная
+    grp.add(new THREE.Mesh(mergeGeoms([planeY(ceilY + 0.7, xW0, xP1 + 0.4, -HZ, HZ, true, 4, 4), planeY(ceilY + 0.7, xQ0 - 0.4, xW1, -HZ, HZ, true, 4, 4)]), new THREE.MeshLambertMaterial({ color: 0x8d9195, side: THREE.DoubleSide })));
+    grp.add(new THREE.Mesh(mergeGeoms([wallX(xP1 + 0.4, ceilY, roofY, -HZ, HZ, 1), wallX(xQ0 - 0.4, ceilY, roofY, -HZ, HZ, -1)]), siding));
+    grp.add(new THREE.Mesh(planeY(roofY, xP1 + 0.4, xQ0 - 0.4, -HZ, HZ, false), glass));
+    const rf = [];
+    for (let z = -HZ; z <= HZ; z += 4) rf.push(boxGeom(xQ0 - xP1 - 0.8, 0.22, 0.14, (xP1 + xQ0) / 2, roofY - 0.11, z));
+    rf.push(boxGeom(0.16, 0.22, 2 * HZ, (xP1 + xQ0) / 2, roofY - 0.11, 0));
+    if (hqOn) {
+      // пространственные фермы: нижние пояса и раскосы
+      const xa = xP1 + 0.9, xb = xQ0 - 0.9, yb = roofY - 1.3;
+      rf.push(boxGeom(0.12, 0.12, 2 * HZ, xa, yb, 0), boxGeom(0.12, 0.12, 2 * HZ, xb, yb, 0));
+      for (let z = -HZ; z < HZ; z += 4) for (const x of [xa, xb]) for (const d of [1, -1]) {
+        const L = Math.hypot(2, 1.2);
+        const g = boxGeom(0.07, 0.07, L, 0, 0, 0);
+        g.rotateX(d * Math.atan2(1.2, 2)); g.translate(x, yb + 0.6, z + 1 + d * 0 + (d > 0 ? 0 : 2) - 1);
+        rf.push(g);
+      }
+    }
+    grp.add(new THREE.Mesh(mergeGeoms(rf), steel));
+    // фронтоны над путями в торцах павильона
+    grp.add(new THREE.Mesh(mergeGeoms([wallZ(xP1 + 0.4, xQ0 - 0.4, 5.2, roofY, -HZ), wallZ(xP1 + 0.4, xQ0 - 0.4, 5.2, roofY, HZ), wallZ(xW0, xP1 + 0.4, ceilY, ceilY + 0.7, -HZ), wallZ(xW0, xP1 + 0.4, ceilY, ceilY + 0.7, HZ), wallZ(xQ0 - 0.4, xW1, ceilY, ceilY + 0.7, -HZ), wallZ(xQ0 - 0.4, xW1, ceilY, ceilY + 0.7, HZ)]), siding));
+    // торцы платформ: остеклённые стены
+    grp.add(new THREE.Mesh(mergeGeoms([wallZ(xW0, xP1 - 0.2, PLAT_Y, ceilY, -PL - 0.2), wallZ(xW0, xP1 - 0.2, PLAT_Y, ceilY, PL + 0.2), wallZ(xQ0 + 0.2, xW1, PLAT_Y, ceilY, -PL - 0.2), wallZ(xQ0 + 0.2, xW1, PLAT_Y, ceilY, PL + 0.2)]), glass));
+    // пешеходный мост между платформами и лестницы на него
+    const deckY = 6.0, bz = 3.5;
+    grp.add(new THREE.Mesh(mergeGeoms([planeY(deckY, xP0, xQ1, -bz, bz, true, 2, 2), planeY(deckY - 0.5, xP0, xQ1, -bz, bz, false, 2, 2)]), floorMat));
+    grp.add(new THREE.Mesh(mergeGeoms([wallZ(xP1 + 0.4, xQ0 - 0.4, deckY - 0.5, deckY, -bz), wallZ(xP1 + 0.4, xQ0 - 0.4, deckY - 0.5, deckY, bz)]), steel));
+    grp.add(new THREE.Mesh(mergeGeoms([wallZ(xP1 + 0.4, xQ0 - 0.4, deckY, deckY + 2.6, -bz), wallZ(xP1 + 0.4, xQ0 - 0.4, deckY, deckY + 2.6, bz)]), glass));
+    grp.add(new THREE.Mesh(planeY(deckY + 2.7, xP1 + 0.4, xQ0 - 0.4, -bz, bz, false), siding));
+    const stairs = [];
+    const steps = 18;
+    for (const [x0, x1] of [[stairX0, stairX1], [xQ1 - 2.9, xQ1 - 0.3]]) {
+      for (let i = 0; i < steps; i++) {
+        const y = PLAT_Y + (deckY - PLAT_Y) * (i + 1) / steps;
+        const z = stairZ1 - (stairZ1 - stairZ0) * (i + 0.5) / steps;
+        stairs.push(boxGeom(x1 - x0, (deckY - PLAT_Y) / steps, (stairZ1 - stairZ0) / steps, (x0 + x1) / 2, y - (deckY - PLAT_Y) / steps / 2, z));
+      }
+    }
+    grp.add(new THREE.Mesh(mergeGeoms(stairs), conc));
+    const rails = [];
+    for (const x of [stairX1, xQ1 - 2.9]) {
+      const L = Math.hypot(stairZ1 - stairZ0, deckY - PLAT_Y);
+      const g = boxGeom(0.06, 0.06, L, 0, 0, 0);
+      g.rotateX(Math.atan2(deckY - PLAT_Y, stairZ1 - stairZ0));
+      g.translate(x, (PLAT_Y + deckY) / 2 + 1.0, (stairZ0 + stairZ1) / 2);
+      rails.push(g, boxGeom(0.04, (deckY - PLAT_Y) / 2 + 1, 0.04, x, PLAT_Y + ((deckY - PLAT_Y) / 2 + 1) / 2, stairZ1 - 0.2));
+    }
+    grp.add(new THREE.Mesh(mergeGeoms(rails), steel));
+    info.stairs = [{ x0: stairX0, x1: stairX1, zBottom: stairZ1, zTop: stairZ0, yBottom: PLAT_Y, yTop: deckY, zWall: bz, o: -1 }];
+    info.exits.push({ x: (stairX0 + stairX1) / 2, z: 1.0, y: deckY });
   }
-  grp.add(new THREE.Mesh(mergeGeoms(stairs), conc));
-  const rails = [];
-  for (const x of [stairX1, xQ1 - 2.9]) {
-    const L = Math.hypot(stairZ1 - stairZ0, deckY - PLAT_Y);
-    const g = boxGeom(0.06, 0.06, L, 0, 0, 0);
-    g.rotateX(Math.atan2(deckY - PLAT_Y, stairZ1 - stairZ0));
-    g.translate(x, (PLAT_Y + deckY) / 2 + 1.0, (stairZ0 + stairZ1) / 2);
-    rails.push(g, boxGeom(0.04, (deckY - PLAT_Y) / 2 + 1, 0.04, x, PLAT_Y + ((deckY - PLAT_Y) / 2 + 1) / 2, stairZ1 - 0.2));
-  }
-  grp.add(new THREE.Mesh(mergeGeoms(rails), steel));
-  info.stairs = [{ x0: stairX0, x1: stairX1, zBottom: stairZ1, zTop: stairZ0, yBottom: PLAT_Y, yTop: deckY, zWall: bz, o: -1 }];
-  info.exits.push({ x: (stairX0 + stairX1) / 2, z: 1.0, y: deckY });
   // названия станции на наружных стенах (текст отражён заранее)
   const tex = nameTexture(style.n, 'plate');
   const nm = new THREE.MeshBasicMaterial({ map: tex });
@@ -954,7 +997,8 @@ function buildSideStation(route, st, line) {
   grp.add(sig);
   info.signal = { set(ok) { red.material = ok ? m.off : m.red; green.material = ok ? m.green : m.off; } };
   const clk = makeClock();
-  clk.mesh.position.set(0, 5.4, -HZ + 0.05);
+  if (style.open) clk.mesh.position.set((xP0 + xP1) / 2, ceilY - 0.7, -PL + 9);
+  else clk.mesh.position.set(0, 5.4, -HZ + 0.05);
   clk.mesh.scale.x = -1;
   grp.add(clk.mesh);
   info.clock = clk;

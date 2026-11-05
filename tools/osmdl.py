@@ -16,10 +16,13 @@ AREAS = {
   'kunc': (55.724, 55.746, 37.412, 37.462),
   # Арбатско-Покровская: Партизанская — наземная «Измайловская» — Первомайская
   'izm': (55.781, 55.799, 37.748, 37.804),
+  # Филёвская: Смоленский метромост, наземный участок Киевская — Студенческая — ... — Кунцевская
+  'filv': (55.728, 55.752, 37.452, 37.592),
 }
 DLAT, DLON = 0.006, 0.010
 UA = {'User-Agent': 'Metro26-hobby-game/1.0 (one-off download of small areas for 3D scenery; github lokofanmoscow-rgb/Metro26)'}
 for name, (la0, la1, lo0, lo1) in AREAS.items():
+    if len(sys.argv) > 2 and name not in sys.argv[2:]: continue
     i = 0
     la = la0
     while la < la1 - 1e-9:
