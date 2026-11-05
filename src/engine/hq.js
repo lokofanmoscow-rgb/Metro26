@@ -43,7 +43,7 @@ function texFromCanvas(c, { srgb = true, aniso = 8 } = {}) {
   return shared(t);
 }
 
-function imgTex(key, srgb) {
+export function imgTex(key, srgb) {
   const ck = 'img:' + key;
   if (HQ.cache.has(ck)) return HQ.cache.get(ck);
   const t = new THREE.Texture(HQ.images[key]);
@@ -57,7 +57,7 @@ function imgTex(key, srgb) {
 }
 
 // перекраска фото-текстуры: светлые и тёмные участки — в заданные цвета (с сохранением фактуры)
-function recolor(key, dark, light, { contrast = 1, split = null } = {}) {
+export function recolor(key, dark, light, { contrast = 1, split = null } = {}) {
   const ck = `rc:${key}:${dark}:${light}:${contrast}`;
   if (HQ.cache.has(ck)) return HQ.cache.get(ck);
   const im = HQ.images[key];
@@ -92,7 +92,7 @@ function recolor(key, dark, light, { contrast = 1, split = null } = {}) {
 }
 
 // тонирование: сохраняет фактуру, меняет цвет
-function tint(key, color, { amount = 1, gain = 1 } = {}) {
+export function tint(key, color, { amount = 1, gain = 1 } = {}) {
   const ck = `tn:${key}:${color}:${amount}:${gain}`;
   if (HQ.cache.has(ck)) return HQ.cache.get(ck);
   const im = HQ.images[key];
@@ -151,7 +151,7 @@ void main() {
   gl_FragColor = vec4(col, 1.0);
 }`;
 
-function marble(name, { base, vein, dark, seamColor = null, slabX = 0.5, slabY = 0.25, scale = 4, veinSharp = 14, veinAmt = 0.75, darkAmt = 0.35, seed = 1, dir = 1, size = 1024 }) {
+export function marble(name, { base, vein, dark, seamColor = null, slabX = 0.5, slabY = 0.25, scale = 4, veinSharp = 14, veinAmt = 0.75, darkAmt = 0.35, seed = 1, dir = 1, size = 1024 }) {
   const ck = 'mb:' + name;
   if (HQ.cache.has(ck)) return HQ.cache.get(ck);
   const r = HQ.renderer;
@@ -202,7 +202,7 @@ function heightCanvasToNormal(c, strength = 2) {
 }
 
 // кессоны свода (ромбы/шестиугольники, как на проекте «Красных Ворот»)
-function cofferMaps(kind = 'hex') {
+export function cofferMaps(kind = 'hex') {
   const ck = 'coffer:' + kind;
   if (HQ.cache.has(ck)) return HQ.cache.get(ck);
   const S = 512;
@@ -251,7 +251,7 @@ export function pbr({ map = null, normalMap = null, roughnessMap = null, aoMap =
   return m;
 }
 
-function lampMat(i = 3.2, col = 0xfff1d6) {
+export function lampMat(i = 3.2, col = 0xfff1d6) {
   const m = new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(i) });
   m.userData.hq = true;
   return m;
@@ -380,7 +380,7 @@ const GlossyShader = {
     }`,
 };
 
-function glossyFloor(x0, x1, z0, z1, y, strength = 0.3) {
+export function glossyFloor(x0, x1, z0, z1, y, strength = 0.3) {
   const w = Math.min(1024, Math.round(window.innerWidth * 0.5)), h = Math.min(768, Math.round(window.innerHeight * 0.5));
   const r = new Reflector(new THREE.PlaneGeometry(x1 - x0, z1 - z0), { textureWidth: w, textureHeight: h, clipBias: 0.003, shader: GlossyShader, multisample: 0, color: 0xffffff });
   r.material.transparent = true;
@@ -765,7 +765,273 @@ function buildKoms(grp, c) {
   for (let z = -PL + 6; z < PL; z += 10) c.info.spots.push({ x: xm, z });
 }
 
-export const HQ_BUILDERS = { kv: buildKV, krop: buildKrop, koms: buildKoms };
+
+// ---------- общие детали новых детальных станций ----------
+// табличка с названием: буквы на фоне (bg = null — прозрачный фон)
+function letterTex(text, { bg = null, fg = '#2c2925', font = '600 92px "PT Sans Narrow","Arial Narrow",Arial,sans-serif', spacing = 0.32, w = 2048, h = 160, upper = true } = {}) {
+  const ck = 'lt:' + text + bg + fg + spacing;
+  if (HQ.cache.has(ck)) return HQ.cache.get(ck);
+  const c = makeCanvas(w, h), x = c.getContext('2d');
+  if (bg) {
+    x.fillStyle = bg; x.fillRect(0, 0, w, h);
+    const r = mulberry32(7);
+    for (let i = 0; i < 40; i++) { x.strokeStyle = `rgba(120,118,112,${0.05 + r() * 0.08})`; x.lineWidth = 1 + r() * 2; x.beginPath(); const y0 = r() * h; x.moveTo(r() * w, y0); x.bezierCurveTo(r() * w, r() * h, r() * w, r() * h, r() * w, y0 + (r() - 0.5) * h); x.stroke(); }
+  }
+  x.font = font; x.fillStyle = fg; x.textBaseline = 'middle';
+  const label = upper ? text.toUpperCase() : text;
+  const chars = [...label];
+  const widths = chars.map((ch) => x.measureText(ch).width);
+  const gap = spacing * h;
+  const total = widths.reduce((a, b) => a + b, 0) + gap * (chars.length - 1);
+  let cx = (w - total) / 2;
+  chars.forEach((ch, i) => { x.fillText(ch, cx, h / 2 + 4); cx += widths[i] + gap; });
+  const t = texFromCanvas(c);
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  HQ.cache.set(ck, t);
+  return t;
+}
+
+// ажурное металлическое панно «Коломенской» (альфа-маска орнамента)
+function grilleTex() {
+  const ck = 'grille';
+  if (HQ.cache.has(ck)) return HQ.cache.get(ck);
+  const W = 256, H = 512, c = makeCanvas(W, H), x = c.getContext('2d');
+  x.clearRect(0, 0, W, H);
+  x.strokeStyle = '#fff'; x.lineCap = 'round';
+  x.lineWidth = 12; x.strokeRect(8, 8, W - 16, H - 16);
+  x.lineWidth = 6;
+  for (let j = 0; j < 6; j++) {
+    const y = 30 + j * 78;
+    x.beginPath(); x.moveTo(W / 2, y); x.bezierCurveTo(W * 0.9, y + 10, W * 0.9, y + 60, W / 2, y + 74); x.bezierCurveTo(W * 0.1, y + 60, W * 0.1, y + 10, W / 2, y); x.stroke();
+    x.beginPath(); x.arc(W / 2, y + 37, 14, 0, Math.PI * 2); x.stroke();
+    x.beginPath(); x.moveTo(20, y + 37); x.lineTo(W * 0.28, y + 37); x.moveTo(W - 20, y + 37); x.lineTo(W * 0.72, y + 37); x.stroke();
+  }
+  x.lineWidth = 4; for (let y = 18; y < H; y += 26) { x.beginPath(); x.moveTo(18, y); x.lineTo(30, y + 13); x.moveTo(W - 18, y); x.lineTo(W - 30, y + 13); x.stroke(); }
+  const t = texFromCanvas(c, { srgb: false });
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  HQ.cache.set(ck, t);
+  return t;
+}
+
+// панели с вертикальными швами (u — 1 м на единицу)
+function seamTex(key, base, seam, step = 1.4, hi = null) {
+  const ck = 'seam:' + key;
+  if (HQ.cache.has(ck)) return HQ.cache.get(ck);
+  const W = 512, H = 512, c = makeCanvas(W, H), x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, base); g.addColorStop(1, base);
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  const r = mulberry32(3);
+  for (let i = 0; i < 1200; i++) { x.fillStyle = `rgba(255,255,255,${0.015 * r()})`; x.fillRect(r() * W, r() * H, 3, 3); }
+  x.fillStyle = seam; x.fillRect(0, 0, 3, H);
+  if (hi) { x.fillStyle = hi; x.fillRect(0, H * 0.08, W, 3); }
+  const t = texFromCanvas(c);
+  t.userData.step = step;
+  HQ.cache.set(ck, t);
+  return t;
+}
+
+function nameWalls(grp, c, tex, w, h, y, zs, mat) {
+  const gs = [];
+  for (const z of zs) for (const [x, f] of [[c.rightWall - 0.03, -1], [c.leftWall + 0.03, 1]]) {
+    const g = plane(w, h); g.rotateY(f > 0 ? Math.PI / 2 : -Math.PI / 2); g.translate(x, y, z); gs.push(g);
+  }
+  grp.add(new THREE.Mesh(mergeGeoms(gs), mat || new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.4, metalness: 0.3 })));
+}
+
+// ---------- «Коломенская» (2023): «сороконожка» с восьмигранными колоннами ----------
+function buildKolom(grp, c) {
+  const { PLAT_Y, EDGE_X, xFar, rightWall, leftWall, PL, HZ, BED_Y } = c;
+  const yTop = PLAT_Y + 4.0;
+  c.info.ceilY = yTop;
+  c.info.customNames = true;
+  const cs = 4, xr = [EDGE_X - 2.15, xFar + 2.15], xm = (xr[0] + xr[1]) / 2;
+  const zs = []; for (let z = -PL + 2.5; z < PL - 1.5; z += cs) zs.push(z);
+  const mWhite = pbr({ map: marble('kol-white', { base: '#e8e6e1', vein: '#8f8d88', dark: '#cfccc6', slabX: 0.5, slabY: 0.3333, scale: 3, veinSharp: 20, veinAmt: 0.5, darkAmt: 0.2, seed: 31.7 }), roughness: 0.16, emissive: 0.07, envI: 0.9 });
+  const mBlack = pbr({ color: 0x151515, roughness: 0.14, emissive: 0.02, envI: 1.0 });
+  const mTile = pbr({ map: tint('tileCol', '#ebdfa9', { amount: 0.92, gain: 1.06 }), normalMap: imgTex('tileNrm', false), roughnessMap: imgTex('tileRgh', false), roughness: 0.35, emissive: 0.08, envI: 0.8 });
+  const mFloor = pbr({ map: recolor('graniteCol', '#8a8a87', '#cfcfcb'), normalMap: imgTex('graniteNrm', false), roughness: 0.2, emissive: 0.05, envI: 0.9 });
+  const mFloorD = pbr({ map: recolor('graniteCol', '#2e2e2e', '#5f5f5d'), roughness: 0.18, emissive: 0.03 });
+  // пол: светлый полированный гранит, тёмные полосы по рядам колонн
+  grp.add(new THREE.Mesh(floorG(PLAT_Y, xFar, EDGE_X, -PL, PL, 3, 3), mFloor));
+  grp.add(new THREE.Mesh(mergeGeoms(xr.map((x) => floorG(PLAT_Y + 0.002, x - 0.75, x + 0.75, -PL, PL, 3, 3))), mFloorD));
+  // путевые стены: чёрный цоколь, кремовая плитка
+  const bandY = PLAT_Y + 0.55;
+  grp.add(new THREE.Mesh(mergeGeoms([wall(rightWall, bandY, yTop, -HZ, HZ, -1, 1.2, 1.2), wall(leftWall, bandY, yTop, -HZ, HZ, 1, 1.2, 1.2)]), mTile));
+  grp.add(new THREE.Mesh(mergeGeoms([wall(rightWall, BED_Y - 0.4, bandY, -HZ, HZ, -1, 2, 2), wall(leftWall, BED_Y - 0.4, bandY, -HZ, HZ, 1, 2, 2)]), mBlack));
+  // название: тёмные металлические буквы на белой мраморной плашке
+  const nt = letterTex(c.style.n, { bg: '#ecebe7', fg: '#2a2622', spacing: 0.42 });
+  nameWalls(grp, c, nt, 5.6, 0.44, PLAT_Y + 1.95, [-58, -18, 22, 62], pbr({ map: nt, roughness: 0.25, emissive: 0.1 }));
+  // ажурные чёрные панно между колоннами
+  const gm = new THREE.MeshStandardMaterial({ color: 0x141414, metalness: 0.7, roughness: 0.35, alphaMap: grilleTex(), alphaTest: 0.5, side: THREE.DoubleSide });
+  gm.userData.hq = true;
+  const gr = [];
+  for (const z of [-70, -38, 2, 42]) for (const [x, f] of [[rightWall - 0.05, -1], [leftWall + 0.05, 1]]) { const g = plane(1.3, 2.6); g.rotateY(f > 0 ? Math.PI / 2 : -Math.PI / 2); g.translate(x, PLAT_Y + 1.85, z); gr.push(g); }
+  grp.add(new THREE.Mesh(mergeGeoms(gr), gm));
+  // восьмигранные колонны: мрамор, чёрный цоколь, тонкий карниз
+  const colH = yTop - PLAT_Y - 0.45;
+  const shaft = new THREE.CylinderGeometry(0.4, 0.4, colH, 8, 1).rotateY(Math.PI / 8).translate(0, colH / 2, 0);
+  scaleUV(shaft, 2.5, colH / 2);
+  const base = new THREE.CylinderGeometry(0.46, 0.46, 0.32, 8, 1).rotateY(Math.PI / 8).translate(0, 0.16, 0);
+  const cap = new THREE.CylinderGeometry(0.5, 0.42, 0.18, 8, 1).rotateY(Math.PI / 8).translate(0, colH + 0.09, 0);
+  const cols = []; for (const z of zs) for (const x of xr) cols.push({ x, y: PLAT_Y, z });
+  grp.add(inst(shaft, mWhite, cols));
+  grp.add(inst(base, mBlack, cols));
+  grp.add(inst(cap, mWhite, cols));
+  // потолок: поперечные рёбра у каждой пары колонн, продольные ригели, люминесцентные светильники
+  const mPl = pbr({ color: 0xecebe7, normalMap: imgTex('plasterNrm', false), normalScale: 0.15, roughness: 0.85, emissive: 0.22, side: THREE.DoubleSide, envI: 0.5 });
+  grp.add(new THREE.Mesh(floorG(yTop, leftWall, rightWall, -HZ, HZ, 3, 3, false), mPl));
+  const beams = [];
+  for (const x of xr) beams.push(boxGeom(0.75, 0.42, 2 * HZ, x, yTop - 0.21, 0));
+  for (const z of zs) beams.push(boxGeom(rightWall - leftWall, 0.3, 0.32, (rightWall + leftWall) / 2, yTop - 0.15, z));
+  grp.add(new THREE.Mesh(mergeGeoms(beams), mPl));
+  const lamps = [];
+  for (let i = 0; i < zs.length - 1; i++) {
+    const z = (zs[i] + zs[i + 1]) / 2;
+    lamps.push({ x: xm - 0.9, y: yTop - 0.04, z }, { x: xm + 0.9, y: yTop - 0.04, z }, { x: (xr[0] + rightWall) / 2 - 0.3, y: yTop - 0.04, z }, { x: (xr[1] + leftWall) / 2 + 0.3, y: yTop - 0.04, z });
+  }
+  grp.add(inst(boxGeom(0.22, 0.05, 2.2, 0, 0, 0), lampMat(3.6, 0xf6f6ff), lamps));
+  const lights = [];
+  for (let z = -PL + 8; z < PL; z += 16) lights.push(new THREE.Vector3(xm, yTop - 0.5, z), new THREE.Vector3((xr[0] + rightWall) / 2, yTop - 0.5, z + 8));
+  c.info.lights = lights;
+  c.info.hemi = 0.35;
+  c.info.poolI = 9;
+  c.info.reflector = glossyFloor(xFar, EDGE_X, -PL, PL, PLAT_Y, 0.34);
+  grp.add(c.info.reflector);
+  for (let i = 0; i < zs.length; i += 3) c.info.spots.push({ x: xm, z: zs[i] + cs / 2 });
+}
+
+// ---------- «Бабушкинская» (1978): односводчатая, световые прорези в своде ----------
+function buildBabush(grp, c) {
+  const { PLAT_Y, EDGE_X, xFar, rightWall, leftWall, PL, HZ, BED_Y } = c;
+  const wallTop = PLAT_Y + 1.95, xmV = (rightWall + leftWall) / 2, half = (rightWall - leftWall) / 2, rise = 4.9;
+  const apex = wallTop + rise;
+  c.info.ceilY = apex;
+  c.info.customNames = true;
+  const xm = (EDGE_X + xFar) / 2;
+  const mWall = pbr({ map: marble('bab-wall', { base: '#d9d2c3', vein: '#efe9dc', dark: '#a79e8d', slabX: 0.5, slabY: 0.5, scale: 2.2, veinSharp: 12, veinAmt: 0.45, darkAmt: 0.35, seed: 8.1 }), roughness: 0.3, emissive: 0.07, envI: 0.8 });
+  const mDark = pbr({ color: 0x2b2a28, roughness: 0.25, emissive: 0.02 });
+  const mFloor = pbr({ map: recolor('graniteCol', '#7f7f7c', '#bdbdb8'), normalMap: imgTex('graniteNrm', false), roughness: 0.3, emissive: 0.05 });
+  const mFloorD = pbr({ map: recolor('graniteCol', '#2f2f2f', '#575755'), roughness: 0.28, emissive: 0.03 });
+  grp.add(new THREE.Mesh(floorG(PLAT_Y, xFar, EDGE_X, -PL, PL, 3, 3), mFloor));
+  grp.add(new THREE.Mesh(mergeGeoms([floorG(PLAT_Y + 0.002, xm - 0.8, xm + 0.8, -PL, PL, 3, 3), floorG(PLAT_Y + 0.002, EDGE_X - 1.6, EDGE_X - 1.1, -PL, PL, 3, 3), floorG(PLAT_Y + 0.002, xFar + 1.1, xFar + 1.6, -PL, PL, 3, 3)]), mFloorD));
+  // низкие путевые стены из мрамора с тёмным цоколем
+  grp.add(new THREE.Mesh(mergeGeoms([wall(rightWall, PLAT_Y - 0.2, wallTop, -HZ, HZ, -1, 2.4, 2.4), wall(leftWall, PLAT_Y - 0.2, wallTop, -HZ, HZ, 1, 2.4, 2.4)]), mWall));
+  grp.add(new THREE.Mesh(mergeGeoms([wall(rightWall, BED_Y - 0.4, PLAT_Y - 0.2, -HZ, HZ, -1, 2, 2), wall(leftWall, BED_Y - 0.4, PLAT_Y - 0.2, -HZ, HZ, 1, 2, 2)]), mDark));
+  // карниз по верху стен
+  grp.add(new THREE.Mesh(mergeGeoms([boxGeom(0.25, 0.12, 2 * HZ, rightWall - 0.1, wallTop + 0.06, 0), boxGeom(0.25, 0.12, 2 * HZ, leftWall + 0.1, wallTop + 0.06, 0)]), mDark));
+  // название — тёмные буквы на стене
+  const nt = letterTex(c.style.n, { fg: '#2b2724', spacing: 0.3 });
+  nameWalls(grp, c, nt, 4.8, 0.38, wallTop - 0.32, [-60, -20, 20, 60]);
+  // свод: эллипс над путями и платформой, ярче в середине (свет из прорезей)
+  const mV = pbr({ color: 0xf2f1ed, normalMap: imgTex('plasterNrm', false), normalScale: 0.15, roughness: 0.8, emissive: 0.14, side: THREE.DoubleSide, bake: true, envI: 0.6 });
+  const pts = arcPts(xmV, wallTop, half, rise, 0, Math.PI, 56);
+  const bake = (x, y) => 0.08 + 0.42 * Math.exp(-(((x - xmV) / (half * 0.6)) ** 2));
+  grp.add(new THREE.Mesh(profZ(pts, -HZ, HZ, 3, 3, bake), mV));
+  // поперечные световые прорези: центральная полоса — светящиеся панели, по бокам — узкие щели
+  const lampsP = [], slits = [];
+  const step = 2.6;
+  for (let z = -PL + 2; z < PL - 1; z += step) {
+    for (let k = 0; k < 7; k++) {
+      const a = Math.PI * (0.33 + k * 0.0567);
+      lampsP.push({ a, z, w: 1.25, d: 0.55 });
+    }
+    for (const a of [Math.PI * 0.14, Math.PI * 0.19, Math.PI * 0.81, Math.PI * 0.86]) slits.push({ a, z, w: 0.62, d: 0.14 });
+  }
+  const panel = (list, inset) => mergeGeoms(list.map(({ a, z, w, d }) => {
+    const g = new THREE.BoxGeometry(w, 0.04, d);
+    const nx = Math.cos(a) / half, ny = Math.sin(a) / rise, nl = Math.hypot(nx, ny);
+    const px = xmV + Math.cos(a) * half - (nx / nl) * inset, py = wallTop + Math.sin(a) * rise - (ny / nl) * inset;
+    g.applyMatrix4(new THREE.Matrix4().makeRotationZ(Math.atan2(ny, nx) - Math.PI / 2));
+    g.translate(px, py, z);
+    return g;
+  }));
+  grp.add(new THREE.Mesh(panel(lampsP, 0.03), lampMat(3.4, 0xf4f7ff)));
+  grp.add(new THREE.Mesh(panel(slits, 0.02), mDark));
+  // металлическая композиция в торце зала (над проходом)
+  const alu = pbr({ color: 0xa9aaa8, metalness: 0.85, roughness: 0.35, emissive: 0.04 });
+  const art = [];
+  for (let i = 0; i < 5; i++) { const a = Math.PI * (0.32 + i * 0.09); art.push(cylGeom(0.55, 0.55, 1.1, 20, xmV + Math.cos(a) * half * 0.8, wallTop + Math.sin(a) * rise * 0.82, -HZ + 0.7, Math.PI / 2, 0, 0)); }
+  art.push(boxGeom(2.6, 0.08, 0.5, xmV, apex - 0.9, -HZ + 1.3));
+  grp.add(new THREE.Mesh(mergeGeoms(art), alu));
+  const lights = [];
+  for (let z = -PL + 10; z < PL; z += 20) lights.push(new THREE.Vector3(xmV, apex - 1.0, z), new THREE.Vector3(xm, apex - 2.2, z + 10));
+  c.info.lights = lights;
+  c.info.hemi = 0.45;
+  c.info.poolI = 10;
+  c.info.reflector = glossyFloor(xFar, EDGE_X, -PL, PL, PLAT_Y, 0.2);
+  grp.add(c.info.reflector);
+  for (let z = -PL + 8; z < PL; z += 12) c.info.spots.push({ x: xm, z });
+}
+
+// ---------- «Новомосковская» (Сокольническая, 2019): рубиновые панели, сетка светильников ----------
+function buildNovomosk(grp, c) {
+  const { PLAT_Y, EDGE_X, xFar, rightWall, leftWall, PL, HZ, BED_Y } = c;
+  const yTop = PLAT_Y + 4.4;
+  c.info.ceilY = yTop;
+  c.info.customNames = true;
+  const cs = 8, xr = [EDGE_X - 2.15, xFar + 2.15], xm = (xr[0] + xr[1]) / 2;
+  const zs = []; for (let z = -PL + 5; z < PL - 3; z += cs) zs.push(z);
+  const mGrey = pbr({ map: marble('nm-grey', { base: '#cfd0ce', vein: '#f1f1ef', dark: '#a7a8a6', slabX: 0.5, slabY: 0.3333, scale: 3, veinSharp: 14, veinAmt: 0.45, darkAmt: 0.25, seed: 14.9 }), roughness: 0.2, emissive: 0.06, envI: 0.9 });
+  const ruby = seamTex('nm-ruby', '#7a0f1e', 'rgba(30,0,4,0.6)', 1.4);
+  const mRuby = pbr({ map: ruby, roughness: 0.07, metalness: 0.15, emissive: 0.03, envI: 1.5 });
+  const mRubyD = pbr({ color: 0x5c0b16, roughness: 0.1, metalness: 0.15, emissive: 0.03, envI: 1.2 });
+  const mGran = pbr({ map: recolor('graniteCol', '#5d5e5e', '#a3a4a3'), normalMap: imgTex('graniteNrm', false), roughness: 0.4, emissive: 0.04 });
+  const mFloor = pbr({ map: recolor('graniteCol', '#8f908e', '#d6d6d3'), normalMap: imgTex('graniteNrm', false), roughness: 0.16, emissive: 0.05, envI: 0.9 });
+  const mFloorD = pbr({ map: recolor('graniteCol', '#4c4d4d', '#7d7e7d'), roughness: 0.16, emissive: 0.03 });
+  grp.add(new THREE.Mesh(floorG(PLAT_Y, xFar, EDGE_X, -PL, PL, 3, 3), mFloor));
+  const fl = [];
+  for (const z of zs) for (const x of xr) fl.push(floorG(PLAT_Y + 0.002, x - 1.1, x + 1.1, z - 1.1, z + 1.1, 3, 3));
+  grp.add(new THREE.Mesh(mergeGeoms(fl), mFloorD));
+  // путевые стены: гранит внизу, тёмно-красный пояс, глянцевые рубиновые панели
+  const wTop = yTop - 0.35;
+  grp.add(new THREE.Mesh(mergeGeoms([wall(rightWall, BED_Y - 0.4, PLAT_Y + 0.1, -HZ, HZ, -1, 2, 2), wall(leftWall, BED_Y - 0.4, PLAT_Y + 0.1, -HZ, HZ, 1, 2, 2)]), mGran));
+  grp.add(new THREE.Mesh(mergeGeoms([wall(rightWall, PLAT_Y + 0.1, PLAT_Y + 0.55, -HZ, HZ, -1, 2, 2), wall(leftWall, PLAT_Y + 0.1, PLAT_Y + 0.55, -HZ, HZ, 1, 2, 2)]), mRubyD));
+  grp.add(new THREE.Mesh(mergeGeoms([wall(rightWall, PLAT_Y + 0.55, wTop, -HZ, HZ, -1, 1.4, wTop - PLAT_Y - 0.55), wall(leftWall, PLAT_Y + 0.55, wTop, -HZ, HZ, 1, 1.4, wTop - PLAT_Y - 0.55)]), mRuby));
+  // название — белые буквы на красном
+  const nt = letterTex(c.style.n, { fg: '#f4f4f2', spacing: 0.3, font: '600 96px "PT Sans","Arial",sans-serif' });
+  nameWalls(grp, c, nt, 5.2, 0.42, PLAT_Y + 2.5, [-56, -12, 32, 70]);
+  // потолок: над платформой белые панели, над путями тёмный со светящейся линией
+  const mPl = pbr({ map: tint('plasterCol', '#eeeeec', { amount: 0.4, gain: 1.08 }), roughness: 0.6, emissive: 0.12, side: THREE.DoubleSide, envI: 0.6 });
+  const mDarkC = pbr({ color: 0x2c2e31, roughness: 0.5, metalness: 0.3, emissive: 0.02, side: THREE.DoubleSide });
+  grp.add(new THREE.Mesh(floorG(yTop, xFar + 0.6, EDGE_X - 0.4, -HZ, HZ, 3, 3, false), mPl));
+  grp.add(new THREE.Mesh(mergeGeoms([floorG(yTop + 0.25, EDGE_X - 0.4, rightWall, -HZ, HZ, 3, 3, false), floorG(yTop + 0.25, leftWall, xFar + 0.6, -HZ, HZ, 3, 3, false)]), mDarkC));
+  grp.add(new THREE.Mesh(mergeGeoms([boxGeom(0.08, 0.06, 2 * HZ, EDGE_X - 0.2, yTop + 0.2, 0), boxGeom(0.08, 0.06, 2 * HZ, xFar + 0.4, yTop + 0.2, 0)]), lampMat(4.5, 0xffffff)));
+  // ригели: продольные с красной полосой, поперечные у каждой пары колонн
+  const beams = [], red = [];
+  for (const x of xr) { beams.push(boxGeom(0.9, 0.5, 2 * HZ, x, yTop - 0.25, 0)); red.push(boxGeom(0.92, 0.07, 2 * HZ, x, yTop - 0.46, 0)); }
+  for (const z of zs) beams.push(boxGeom(EDGE_X - xFar - 0.8, 0.5, 0.6, xm, yTop - 0.25, z));
+  grp.add(new THREE.Mesh(mergeGeoms(beams), mPl));
+  grp.add(new THREE.Mesh(mergeGeoms(red), mRubyD));
+  // сетка квадратных светильников в центральном нефе
+  const cells = [];
+  for (let i = 0; i < zs.length - 1; i++) for (let k = 0; k < 5; k++) {
+    const z = zs[i] + 1.2 + k * 1.4;
+    for (const x of [xm - 0.75, xm + 0.75]) cells.push({ x, y: yTop - 0.03, z });
+  }
+  grp.add(inst(boxGeom(0.62, 0.05, 0.62, 0, 0, 0), lampMat(3.2, 0xfafcff), cells));
+  // квадратные колонны: серый мрамор, тёмный цоколь
+  const colH = yTop - PLAT_Y - 0.5;
+  const shaft = uvBox(boxGeom(0.8, colH, 0.8, 0, colH / 2, 0), 1.6);
+  const cols = []; for (const z of zs) for (const x of xr) cols.push({ x, y: PLAT_Y, z });
+  grp.add(inst(shaft, mGrey, cols));
+  grp.add(inst(boxGeom(0.86, 0.18, 0.86, 0, 0.09, 0), pbr({ color: 0x2a2b2b, roughness: 0.2, emissive: 0.02 }), cols));
+  // скамейки между колоннами
+  const bench = [];
+  for (let i = 1; i < zs.length - 1; i += 2) bench.push({ x: xm, y: PLAT_Y, z: zs[i] + cs / 2 });
+  grp.add(inst(mergeGeoms([boxGeom(0.55, 0.08, 2.4, 0, 0.45, 0), boxGeom(0.4, 0.42, 0.12, 0, 0.21, -1.0), boxGeom(0.4, 0.42, 0.12, 0, 0.21, 1.0)]), pbr({ color: 0x8c8f92, metalness: 0.6, roughness: 0.3, emissive: 0.03 }), bench));
+  const lights = [];
+  for (let z = -PL + 8; z < PL; z += 16) lights.push(new THREE.Vector3(xm, yTop - 0.6, z), new THREE.Vector3((xr[0] + EDGE_X) / 2, yTop - 0.6, z + 8));
+  c.info.lights = lights;
+  c.info.hemi = 0.45;
+  c.info.poolI = 9;
+  c.info.reflector = glossyFloor(xFar, EDGE_X, -PL, PL, PLAT_Y, 0.36);
+  grp.add(c.info.reflector);
+  for (let i = 0; i < zs.length - 1; i++) c.info.spots.push({ x: xm, z: zs[i] + cs / 2 });
+}
+
+export { letterTex, seamTex };
+
+export const HQ_BUILDERS = { kv: buildKV, krop: buildKrop, koms: buildKoms, kolom: buildKolom, babush: buildBabush, novomosk: buildNovomosk };
 
 // карта окружения станции для отражений и рассеянного света (снимается один раз после постройки)
 export function captureEnv(renderer, scene, built) {
