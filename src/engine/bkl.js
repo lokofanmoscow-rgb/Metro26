@@ -809,6 +809,11 @@ export function* buildBKLPylon(grp, c, s) {
   const fl = s.floor || {};
   add([floorG(PY, xFar, EDGE_X, -PL, PL)], { g: fl.g || ['#7f7f7c', '#cfcfcb'], r: 0.16 });
   info.reflector = glossyFloor(xPy0, EDGE_X, -PL, PL, PY, fl.gl ?? 0.28); grp.add(info.reflector);
+  if (s.tube) {
+    yield* buildTubePylon(grp, c, s, M);
+    OWN.set(CUR, [...(OWN.get(CUR) || []), ...[...HQ.cache.keys()].filter((k) => !before.has(k) && !k.startsWith('gn:'))]);
+    return;
+  }
   // путевые стены
   for (const [x, f] of [[rightWall, -1], [leftWall, 1]]) {
     let y0 = BED_Y - 0.4;
@@ -874,3 +879,169 @@ export function* buildBKLPylon(grp, c, s) {
   info.lights = lights; info.hemi = s.hemi ?? 0.5; info.poolI = s.poolI ?? 9;
   OWN.set(CUR, [...(OWN.get(CUR) || []), ...[...HQ.cache.keys()].filter((k) => !before.has(k) && !k.startsWith('gn:'))]);
 }
+
+// Пилонная станция в чугунных тюбингах («Марьина Роща»): боковые залы — круглые тоннели,
+// над путём видна обделка (кольцевые и продольные рёбра — объёмные), над платформой — белый свод
+// со световой линией; пилоны — мраморные «капсулы» со скруглёнными углами, в проходах — кольцевые светильники.
+// Координата u в каждом боковом зале: 0 — ось пути, к платформе — минус; x = x0 + sg·u.
+function* buildTubePylon(grp, c, s, M) {
+  const { PLAT_Y: PY, EDGE_X, xFar, oppX, PL, HZ, BED_Y, info } = c;
+  const T = s.tube, uc = T.uc ?? -0.6, yc = T.yc ?? 1.6, R = T.R ?? 4.0, d = T.d ?? 0.22;
+  const hP = s.openH ?? 3.3, cs = s.step ?? 8, pass = s.pass ?? 3.0, bev = 0.28;
+  const yB = BED_Y - 0.4;
+  const th0 = Math.asin((yB - yc) / R), thB = Math.acos(((T.edgeU ?? -1.2) - uc) / R);
+  const sides = [
+    { x0: 0, sg: 1, face: EDGE_X - 2.82, back: EDGE_X - 5.52 },
+    { x0: oppX, sg: -1, face: -(xFar + 2.7 - oppX), back: -(xFar + 5.4 - oppX) },
+  ];
+  const cir = (r, a) => [uc + r * Math.cos(a), yc + r * Math.sin(a)];
+  const soup = () => ({ p: [], push(sd, pts) { for (const [u, y, z] of pts) this.p.push(sd.x0 + sd.sg * u, y, z); } });
+  const quad = (S, sd, a, b, c2, d2) => S.push(sd, [a, b, c2, a, c2, d2]);
+  const toMesh = (S, mat) => {
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(S.p, 3)); g.computeVertexNormals();
+    const m = M(mat); m.side = THREE.DoubleSide; grp.add(new THREE.Mesh(g, m));
+  };
+  const skin = soup(), ribs = soup();
+  const NS = 22, ring = T.ring ?? 0.9, tw = 0.08, lw = 0.06, ribStep = T.rib ?? 0.62;
+  for (const sd of sides) {
+    // оболочка
+    for (let j = 0; j < NS; j++) {
+      const a0 = th0 + (thB - th0) * j / NS, a1 = th0 + (thB - th0) * (j + 1) / NS;
+      const [u0, y0] = cir(R, a0), [u1, y1] = cir(R, a1);
+      quad(skin, sd, [u0, y0, -HZ], [u1, y1, -HZ], [u1, y1, HZ], [u0, y0, HZ]);
+    }
+    // кольцевые рёбра
+    for (let z = -HZ + ring / 2; z < HZ; z += ring) {
+      const za = z - tw / 2, zb = z + tw / 2;
+      for (let j = 0; j < NS; j++) {
+        const a0 = th0 + (thB - th0) * j / NS, a1 = th0 + (thB - th0) * (j + 1) / NS;
+        const [pu0, py0] = cir(R, a0), [pu1, py1] = cir(R, a1), [iu0, iy0] = cir(R - d, a0), [iu1, iy1] = cir(R - d, a1);
+        quad(ribs, sd, [iu0, iy0, za], [iu1, iy1, za], [iu1, iy1, zb], [iu0, iy0, zb]);
+        quad(ribs, sd, [pu0, py0, za], [pu1, py1, za], [iu1, iy1, za], [iu0, iy0, za]);
+        quad(ribs, sd, [pu0, py0, zb], [pu1, py1, zb], [iu1, iy1, zb], [iu0, iy0, zb]);
+      }
+    }
+    // продольные рёбра (стыки блоков кольца) и торец обделки у белого свода
+    for (let a = th0 + 0.35 / R; a < thB - 0.2 / R; a += ribStep / R) {
+      const a1 = a - lw / 2 / R, a2 = a + lw / 2 / R;
+      const [p1u, p1y] = cir(R, a1), [p2u, p2y] = cir(R, a2), [i1u, i1y] = cir(R - d, a1), [i2u, i2y] = cir(R - d, a2);
+      quad(ribs, sd, [i1u, i1y, -HZ], [i2u, i2y, -HZ], [i2u, i2y, HZ], [i1u, i1y, HZ]);
+      quad(ribs, sd, [p1u, p1y, -HZ], [i1u, i1y, -HZ], [i1u, i1y, HZ], [p1u, p1y, HZ]);
+      quad(ribs, sd, [p2u, p2y, -HZ], [i2u, i2y, -HZ], [i2u, i2y, HZ], [p2u, p2y, HZ]);
+    }
+    const [eu, ey] = cir(R, thB), [bu, by] = cir(R - d - 0.04, thB);
+    quad(ribs, sd, [eu, ey, -HZ], [bu, by, -HZ], [bu, by, HZ], [eu, ey, HZ]);
+    // дно лотка между краем пути и обделкой
+    const [gu] = cir(R, Math.asin((BED_Y - yc) / R));
+    quad(skin, sd, [2.2, BED_Y + 0.002, -HZ], [gu, BED_Y + 0.002, -HZ], [gu, BED_Y + 0.002, HZ], [2.2, BED_Y + 0.002, HZ]);
+  }
+  toMesh(skin, T.skin || { c: '#232427', r: 0.62, m: 0.35, e: 0.02 });
+  toMesh(ribs, T.ribs || { c: '#3a3c40', r: 0.5, m: 0.45, e: 0.03 });
+  yield;
+  // белый свод над платформой: от края обделки к верху пилонов
+  const shellPts = [];
+  const [Bu, By] = cir(R - d - 0.04, thB), tg = [-Math.sin(thB), Math.cos(thB)];
+  for (const sd of sides) {
+    const P0 = [Bu, By], P1 = [Bu + tg[0] * 1.3, By + tg[1] * 1.3], P3 = [sd.face + 0.03, PY + hP], P2 = [P3[0], P3[1] + 1.0];
+    const pts = [];
+    for (let i = 0; i <= 24; i++) {
+      const t = i / 24, m = 1 - t, b = [m * m * m, 3 * m * m * t, 3 * m * t * t, t * t * t];
+      const u = b[0] * P0[0] + b[1] * P1[0] + b[2] * P2[0] + b[3] * P3[0], y = b[0] * P0[1] + b[1] * P1[1] + b[2] * P2[1] + b[3] * P3[1];
+      pts.push([sd.x0 + sd.sg * u, y]);
+    }
+    shellPts.push(pts);
+  }
+  const strip = (pts, z0, z1, mat) => {
+    const pos = [], uv = [], idx = []; let ul = 0;
+    for (let j = 0; j < pts.length; j++) { if (j) ul += Math.hypot(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1]); for (const z of [z0, z1]) { pos.push(pts[j][0], pts[j][1], z); uv.push(ul, z); } }
+    for (let j = 0; j < pts.length - 1; j++) { const a = j * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); gg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); gg.setIndex(idx); gg.computeVertexNormals();
+    const m = M(mat); m.side = THREE.DoubleSide; grp.add(new THREE.Mesh(gg, m));
+  };
+  for (const pts of shellPts) strip(pts, -HZ, HZ, s.vault || 'whiteP');
+  // центральный зал
+  const xPy1 = sides[0].back, xPy3 = oppX - sides[1].back;
+  const cY = PY + (s.centerY ?? 3.8), cx = (xPy1 + xPy3) / 2, cr = (xPy1 - xPy3) / 2;
+  const cpts = []; for (let i = 0; i <= 36; i++) { const a = Math.PI * i / 36; cpts.push([cx + Math.cos(a) * cr, cY + Math.sin(a) * cr * 0.75]); }
+  strip(cpts, -PL, PL, s.center || 'whiteP');
+  info.ceilY = cY + cr * 0.75;
+  yield;
+  // пилоны-«капсулы», перемычки над проходами, светильники
+  const rr = (x0, x1, z0, z1, r) => {
+    const sh = new THREE.Shape(), a = x0, b = x1, c0 = -z1, c1 = -z0;
+    r = Math.max(0.02, Math.min(r, (b - a) / 2 - 0.01, (c1 - c0) / 2 - 0.01));
+    sh.moveTo(a + r, c0); sh.lineTo(b - r, c0); sh.absarc(b - r, c0 + r, r, -Math.PI / 2, 0, false);
+    sh.lineTo(b, c1 - r); sh.absarc(b - r, c1 - r, r, 0, Math.PI / 2, false);
+    sh.lineTo(a + r, c1); sh.absarc(a + r, c1 - r, r, Math.PI / 2, Math.PI, false);
+    sh.lineTo(a, c0 + r); sh.absarc(a + r, c0 + r, r, Math.PI, Math.PI * 1.5, false);
+    return sh;
+  };
+  const Z = []; for (let z = -PL + cs; z < PL - cs * 0.4; z += cs) Z.push(z);
+  const spans = []; let zs = -PL;
+  for (const z of Z) { spans.push([zs, z - pass / 2]); zs = z + pass / 2; }
+  spans.push([zs, PL]);
+  const rc = s.pylonR ?? 0.95;
+  const pyl = [], glow = [], lint = [], rings = [], dots = [], benchB = [], benchS = [];
+  for (const sd of sides) {
+    const xa = Math.min(sd.x0 + sd.sg * sd.face, sd.x0 + sd.sg * sd.back), xb = Math.max(sd.x0 + sd.sg * sd.face, sd.x0 + sd.sg * sd.back), xm = (xa + xb) / 2;
+    for (const [z0, z1] of spans) {
+      const end0 = z0 <= -PL + 0.01, end1 = z1 >= PL - 0.01;
+      const za = end0 ? z0 - 0.5 : z0, zb = end1 ? z1 + 0.5 : z1;
+      const g = new THREE.ExtrudeGeometry(rr(xa + bev, xb - bev, za + bev, zb - bev, rc - bev), { depth: hP - 2 * bev, bevelEnabled: true, bevelThickness: bev, bevelSize: bev, bevelSegments: 3, curveSegments: 6 });
+      g.rotateX(-Math.PI / 2); g.translate(0, PY + bev, 0); pyl.push(g);
+      const ring2 = new THREE.ShapeGeometry((() => { const o = rr(xa - 0.05, xb + 0.05, za - 0.05, zb + 0.05, rc + 0.05); o.holes.push(rr(xa + bev * 0.6, xb - bev * 0.6, za + bev * 0.6, zb - bev * 0.6, rc - bev * 0.6)); return o; })(), 8);
+      ring2.rotateX(-Math.PI / 2); ring2.translate(0, PY + 0.006, 0); glow.push(ring2);
+      // скамья у пилона со стороны пути: гранитное основание, деревянное сиденье
+      if (!end0 && !end1 && z1 - z0 > 3) {
+        const bx = sd.x0 + sd.sg * (sd.face + 0.42), bl = Math.min(2.6, z1 - z0 - 2.2), bz = (z0 + z1) / 2;
+        benchB.push(box(0.5, 0.36, bl, bx, PY + 0.18, bz));
+        benchS.push(box(0.56, 0.09, bl - 0.06, bx, PY + 0.405, bz));
+      }
+    }
+    lint.push(box(xb - xa, 2.6, 2 * PL, xm, PY + hP + 1.3, 0));
+    for (const z of Z) {
+      const t = new THREE.TorusGeometry(Math.min(0.9, (xb - xa) / 2 - 0.35), 0.055, 4, 32); t.rotateX(Math.PI / 2); t.translate(xm, PY + hP - 0.05, z); rings.push(t);
+      const f = new THREE.TorusGeometry(0.2, 0.022, 3, 16); f.scale(1, 1, 0.3); f.rotateX(Math.PI / 2); f.translate(xm, PY + 0.008, z); dots.push(f);
+      info.spots.push({ x: xm + (sd.sg > 0 ? 2.4 : -2.4), z: z + cs / 2 });
+    }
+  }
+  grp.add(new THREE.Mesh(mergeGeoms(pyl), M(s.pylon || 'white')));
+  add(grp, M, lint, s.lintel || s.center || 'whiteP');
+  add(grp, M, benchB, { g: ['#9a9a98', '#d0d0cc'], r: 0.2 });
+  add(grp, M, benchS, { t: 'wood', r: 0.45 });
+  grp.add(new THREE.Mesh(mergeGeoms(glow), lampMat(2.2, 0xfff6ea)));
+  grp.add(new THREE.Mesh(mergeGeoms([...rings, ...dots]), lampMat(4.0, 0xfafcff)));
+  yield;
+  // световые линии: на краю белого свода, под карнизом пилонов, по оси центрального зала
+  const lg = [box(0.25, 0.04, 2 * PL - 4, cx, info.ceilY - 0.06, 0)];
+  for (const sd of sides) {
+    const ux = sd.x0 + sd.sg * (Bu - 0.06);
+    lg.push(box(0.16, 0.06, 2 * PL, ux, By - 0.05, 0));
+    lg.push(box(0.07, 0.03, 2 * PL, sd.x0 + sd.sg * (sd.face + 0.1), PY + hP - 0.02, 0));
+  }
+  if (s.ring) for (let z = -PL + 10; z < PL; z += 20) { const t = new THREE.TorusGeometry(1.2, 0.06, 8, 48); t.rotateX(Math.PI / 2); t.translate(cx, info.ceilY - 0.4, z); lg.push(t); }
+  grp.add(new THREE.Mesh(mergeGeoms(lg), lampMat(4.4, 0xfafcff)));
+  // название на стальной трубе вдоль обделки
+  const N = s.name || {};
+  const tt = textTex(c.title, { fg: N.fg || '#d9d9d6', font: N.font || '600 96px "PT Sans",Arial,sans-serif', spacing: 0.22 });
+  const yN = PY + (N.y ?? 2.75), hN = N.h ?? 0.55, ng = [], rail = [];
+  // буквы — перед рёбрами обделки по всей высоте (свод выше центра наклоняется к пути)
+  const ribU = (y) => uc + Math.sqrt(Math.max(0, (R - d) ** 2 - (y - yc) ** 2));
+  const uN = ribU(yN + hN / 2) - 0.08, yR = yN - hN / 2 - 0.05;
+  for (const sd of sides) {
+    const xr = sd.x0 + sd.sg * uN;
+    const cyl = new THREE.CylinderGeometry(0.05, 0.05, 2 * PL, 10); cyl.rotateX(Math.PI / 2); cyl.translate(xr, yR, 0); rail.push(cyl);
+    // кронштейны трубы к рёбрам
+    const br = ribU(yR) - uN;
+    for (let z = -PL + 2; z < PL; z += 3.6) rail.push(box(br, 0.05, 0.05, sd.x0 + sd.sg * (uN + br / 2), yR, z));
+    for (const z of [-54, -18, 18, 54]) { const q = new THREE.PlaneGeometry(hN * (tt.userData.aspect || 8), hN); q.rotateY(sd.sg > 0 ? -Math.PI / 2 : Math.PI / 2); q.translate(xr - sd.sg * 0.01, yN, z); ng.push(q); }
+  }
+  add(grp, M, rail, 'steel');
+  const nm = new THREE.MeshStandardMaterial({ map: tt, transparent: true, roughness: 0.3, metalness: 0.6, emissiveMap: tt, emissive: new THREE.Color(0.25, 0.25, 0.25) }); nm.userData.hq = true;
+  grp.add(new THREE.Mesh(mergeGeoms(ng), nm));
+  const lights = [];
+  for (let z = -PL + 8; z < PL; z += 16) for (const sd of sides) lights.push(new THREE.Vector3(sd.x0 + sd.sg * -1.0, PY + 3.4, z + (sd.sg > 0 ? 0 : 8)));
+  for (let z = -PL + 8; z < PL; z += 16) lights.push(new THREE.Vector3(cx, info.ceilY - 1.2, z));
+  info.lights = lights; info.hemi = s.hemi ?? 0.5; info.poolI = s.poolI ?? 9;
+}
+function add(grp, M, geoms, mat) { if (geoms.length) grp.add(new THREE.Mesh(mergeGeoms(geoms), M(mat))); }

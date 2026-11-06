@@ -152,8 +152,8 @@ function osmPortal(route, s, facingForward, ox, hill = false, building = false) 
     const roofM = new THREE.MeshLambertMaterial({ color: 0x5f5a54 });
     const hidden = new THREE.MeshBasicMaterial({ visible: false });
     // коробка без передней и нижней граней; перед — фасад с проёмом портала
+    // без нижней и задней граней: задний фасад стоял бы поперёк тоннеля, который проходит сквозь дом
     const bm = [fm, fm, roofM, hidden, hidden, hidden];
-    bm[dir > 0 ? 4 : 5] = fm; // задний фасад
     const hb = new THREE.Mesh(boxGeom(W, Hb + 1, Db, xc, gy + Hb / 2 - 0.5, dir * (Db / 2 + 0.05)), bm);
     const fs = new THREE.Shape();
     fs.moveTo(xc - W / 2, gy - 1); fs.lineTo(xc + W / 2, gy - 1); fs.lineTo(xc + W / 2, gy + Hb); fs.lineTo(xc - W / 2, gy + Hb); fs.lineTo(xc - W / 2, gy - 1);

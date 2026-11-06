@@ -77,10 +77,22 @@ function endWall(z, x0, x1, y0, y1, holes, deep, facing, rects = []) {
   y1 = Math.max(y1, (deep ? TUBE_CY + TUBE_R : BOX_TOP) + 0.4);
   const sh = new THREE.Shape();
   sh.moveTo(x0, y0); sh.lineTo(x1, y0); sh.lineTo(x1, y1); sh.lineTo(x0, y1); sh.lineTo(x0, y0);
-  for (const hx of holes) {
+  // проёмы соседних путей, которые перекрываются (пути ближе ширины тоннеля), — один общий проём:
+  // перекрывающиеся отверстия ломают триангуляцию, и стена перегораживает путь
+  const groups = [];
+  for (const h of [...holes].sort((p, q) => p - q)) {
+    const g = groups[groups.length - 1];
+    if (g && h - g[1] < 2 * hw + 0.1) g[1] = h; else groups.push([h, h]);
+  }
+  for (const [ha, hb] of groups) {
     const p = new THREE.Path();
-    if (deep) p.absarc(hx, TUBE_CY, TUBE_R, 0, Math.PI * 2, true);
-    else { p.moveTo(hx - BOX_W, BED_Y - 0.5); p.lineTo(hx - BOX_W, BOX_TOP); p.lineTo(hx + BOX_W, BOX_TOP); p.lineTo(hx + BOX_W, BED_Y - 0.5); p.lineTo(hx - BOX_W, BED_Y - 0.5); }
+    if (deep && ha === hb) p.absarc(ha, TUBE_CY, TUBE_R, 0, Math.PI * 2, true);
+    else if (deep) {
+      p.moveTo(ha, TUBE_CY - TUBE_R); p.lineTo(hb, TUBE_CY - TUBE_R);
+      p.absarc(hb, TUBE_CY, TUBE_R, -Math.PI / 2, Math.PI / 2, false);
+      p.lineTo(ha, TUBE_CY + TUBE_R);
+      p.absarc(ha, TUBE_CY, TUBE_R, Math.PI / 2, Math.PI * 1.5, false);
+    } else { p.moveTo(ha - BOX_W, BED_Y - 0.5); p.lineTo(ha - BOX_W, BOX_TOP); p.lineTo(hb + BOX_W, BOX_TOP); p.lineTo(hb + BOX_W, BED_Y - 0.5); p.lineTo(ha - BOX_W, BED_Y - 0.5); }
     sh.holes.push(p);
   }
   for (const [xa, xb, ya, yb] of rects) {
@@ -512,9 +524,10 @@ export function* buildStationSteps(route, st, line) {
     const CH = 2.5; // высота коридора
     const hw = 2.1; // полуширина прохода
     const rect = [[xm - hw, xm + hw, LH, LH + CH]];
+    const ewx = BK && BK.tube ? 1.6 : 0; // круглый тоннель в тюбингах шире путевых стен
     grp.add(new THREE.Mesh(mergeGeoms([
-      endWall(-HZ, leftWall, rightWall, BED_Y - 0.4, topY, [0, oppX], deep, 1, rect),
-      endWall(HZ, leftWall, rightWall, BED_Y - 0.4, topY, [0, oppX], deep, -1, rect),
+      endWall(-HZ, leftWall - ewx, rightWall + ewx, BED_Y - 0.4, topY, [0, oppX], deep, 1, rect),
+      endWall(HZ, leftWall - ewx, rightWall + ewx, BED_Y - 0.4, topY, [0, oppX], deep, -1, rect),
     ]), endMat));
     // торцы платформы с проёмом выхода
     const ew = mat(wTex, 0.45, { side: THREE.DoubleSide });

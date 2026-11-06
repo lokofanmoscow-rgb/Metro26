@@ -23,10 +23,17 @@ export const BKL = {
     lining: { mb: { base: '#19191b', vein: '#d4d4d4', dark: '#0c0c0c', veinAmt: 0.5, veinSharp: 9 }, r: 0.12 },
     opening: 'rect', pass: 4.6, openH: 3.6, floor: { g: ['#55565a', '#9c9d9f'] }, name: { fg: '#cfcfcc', y: 2.0 },
   },
+  // боковые залы — круглые тоннели в чугунных тюбингах (над путём обделка открыта, над платформой — белый свод
+  // со световой линией); пилоны — скруглённые «капсулы» из белого мрамора, в проходах — кольцевые светильники
   'ln11:Марьина Роща': {
-    type: 'pylon', wallH: 2.6, wall: [[2.6, tubbing]], vault: tubbing,
-    center: { c: '#f3f3f1', r: 0.6, e: 0.18 }, pylon: { c: '#f0f0ee', r: 0.35, e: 0.14 }, opening: 'pill', pass: 5.0, openH: 3.9, ring: true,
-    floor: { g: ['#8a8a88', '#d8d8d4'] }, name: { fg: '#d4d7db', y: 2.1 },
+    type: 'pylon', hemi: 0.36, poolI: 8,
+    tube: { R: 4.0, uc: -0.6, yc: 1.6, d: 0.22, ring: 0.9, rib: 0.62, edgeU: -1.2,
+      skin: { c: '#131416', r: 0.72, m: 0.3, e: 0 }, ribs: { c: '#232528', r: 0.55, m: 0.45, e: 0.01 } },
+    vault: { t: 'panel', c: '#ededeb', seam: 'rgba(70,70,70,0.4)', pw: 8, ph: 1.25, r: 0.4, e: 0.09 },
+    center: { t: 'panel', c: '#efefed', seam: 'rgba(70,70,70,0.32)', pw: 8, ph: 1.25, r: 0.45, e: 0.09 },
+    pylon: { mb: { base: '#e9e9e6', vein: '#7f8388', dark: '#cfcfcc', veinAmt: 0.5 }, r: 0.16, gs: 2.2, e: 0.04 },
+    step: 8, pass: 3.0, openH: 3.3, centerY: 3.8, ring: true,
+    floor: { g: ['#8f8f8d', '#dcdcd8'], gl: 0.4 }, name: { fg: '#d8dadd', y: 2.75 },
   },
   'ln11:Рижская': {
     type: 'pylon', wallH: 2.6, wall: [[2.6, tubbing]], vault: tubbing, center: { c: '#f2f2f0', r: 0.6, e: 0.18 },
