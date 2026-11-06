@@ -610,6 +610,9 @@ export class Game {
     this._ambientTrain(this.paused ? 0 : dt);
     this._camera(dt);
     this._updateLights(dt);
+    // «вид из окна» панорамных станций виден только изнутри: с открытого участка рядом он торчал бы над землёй
+    const outd = this.route.isOutdoor(this.s);
+    for (const it of this.loaded.values()) { const bd = it.built && it.built.group && it.built.group.userData.panoBD; if (bd) bd.visible = !outd; }
     this._stream(false);
     this._reflectors();
     if (this.composer) this.composer.render(); else this.renderer.render(this.scene, this.camera);

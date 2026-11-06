@@ -1150,18 +1150,20 @@ function buildPanorama(grp, x, o, top, style) {
   for (let z = -HZ; z <= HZ; z += 3) mull.push(boxGeom(0.12, top - y0, 0.14, x, (top + y0) / 2, z));
   for (const y of [y0, (y0 + top) / 2, top - 0.1]) mull.push(boxGeom(0.14, 0.12, 2 * HZ, x, y, 0));
   grp.add(new THREE.Mesh(mergeGeoms(mull), frame));
-  // снаружи: склон к низине, газон, деревья и небо (без освещения — дневной свет)
+  // снаружи: склон к низине, газон, деревья и небо (без освещения — дневной свет).
+  // Это декорация «вида из окна»: с открытого участка рядом (мост за «Пыхтино») её прячет игра — grp.userData.panoBD
+  const bd = new THREE.Group(); grp.add(bd); grp.userData.panoBD = bd;
   const gY = PLAT_Y - 4.5;
   const grassM = new THREE.MeshBasicMaterial({ color: 0x6f8f4e });
   const slopeM = new THREE.MeshBasicMaterial({ color: 0x7c8a5a });
   const g = new THREE.PlaneGeometry(320, 460); g.rotateX(-Math.PI / 2); g.translate(x + o * (16 + 160), gY, 0);
-  grp.add(new THREE.Mesh(g, grassM));
+  bd.add(new THREE.Mesh(g, grassM));
   // откос от стены вниз
   const sh = new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(x + o * 0.2, BED_Y - 0.4, -230), new THREE.Vector3(x + o * 16, gY, -230), new THREE.Vector3(x + o * 16, gY, 230),
     new THREE.Vector3(x + o * 0.2, BED_Y - 0.4, -230), new THREE.Vector3(x + o * 16, gY, 230), new THREE.Vector3(x + o * 0.2, BED_Y - 0.4, 230),
   ]);
-  grp.add(new THREE.Mesh(sh, new THREE.MeshBasicMaterial({ color: slopeM.color, side: THREE.DoubleSide })));
+  bd.add(new THREE.Mesh(sh, new THREE.MeshBasicMaterial({ color: slopeM.color, side: THREE.DoubleSide })));
   const rng = mulberry32(hashStr(style.n + ':pano'));
   const crown = new THREE.IcosahedronGeometry(1, 0), trunk = new THREE.CylinderGeometry(0.18, 0.25, 1, 6);
   const N = 220;
@@ -1176,7 +1178,7 @@ function buildPanorama(grp, x, o, top, style) {
     ci.setColorAt && ci.setColorAt(i, new THREE.Color().setHSL(0.24 + rng() * 0.06, 0.38, 0.28 + rng() * 0.12));
   }
   if (ci.instanceColor) ci.instanceColor.needsUpdate = true;
-  grp.add(ti, ci);
+  bd.add(ti, ci);
   // небо — полуцилиндр с градиентом
   const c = makeCanvas(4, 256); const ctx = c.getContext('2d');
   const gr = ctx.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#7fa6cf'); gr.addColorStop(0.75, '#cfdde8'); gr.addColorStop(1, '#e6ecef');
@@ -1184,7 +1186,7 @@ function buildPanorama(grp, x, o, top, style) {
   const skyT = canvasTex(c, { mip: false });
   const cyl = new THREE.CylinderGeometry(330, 330, 160, 32, 1, true, o > 0 ? 0 : Math.PI, Math.PI);
   cyl.translate(x, gY + 70, 0);
-  grp.add(new THREE.Mesh(cyl, new THREE.MeshBasicMaterial({ map: skyT, side: THREE.BackSide, fog: false })));
+  bd.add(new THREE.Mesh(cyl, new THREE.MeshBasicMaterial({ map: skyT, side: THREE.BackSide, fog: false })));
 }
 
 // ---------- Станция с произвольной раскладкой путей и платформ ----------

@@ -121,9 +121,38 @@ export class Route {
         return v;
       };
     }
+    this._portalGrades();
     this._buildPlan();
     this._buildProfile();
     this._buildZones();
+  }
+
+  // Станция у самого портала реального открытого участка (за «Пыхтино» — сразу метромост через Ликову):
+  // путь от конца зала до портала — не круче 30‰ в среднем. Сначала поднимаем станцию (но зал остаётся
+  // под землёй), если этого мало — портал уходит в рампу ниже уровня земли.
+  _portalGrades() {
+    const G = 0.03, HMIN = HALL_HALF + 6, TOP = -7.0;
+    for (const o of this.polyZones) {
+      if (o.kind !== 'open' && o.kind !== 'gallery') continue;
+      for (const end of [0, 1]) {
+        if (end ? o.s1 >= this.length - 1 : o.s0 <= 1) continue;
+        const zs = end ? o.s1 : o.s0, pk = end ? 'pd1' : 'pd0';
+        for (const st of this.stations) {
+          if (GLASS_TYPES.includes(st.style.t) || st.elev) continue;
+          const gap = end ? st.c - HMIN - zs : zs - (st.c + HMIN);
+          if (gap < 0 || gap > 400) continue;
+          const zy = -(o[pk] ?? o.pd);
+          const want = zy - G * gap; // самый глубокий уровень станции при таком портале
+          if (st.level >= want) continue;
+          st.flat = HMIN;
+          if (want <= TOP) { st.level = want; continue; }
+          const pd = Math.max(PORTAL_D, -TOP - G * gap);
+          o[pk] = pd;
+          o.pd = Math.max(o.pd0 ?? 0, o.pd1 ?? 0);
+          st.level = Math.max(st.level, -pd - G * gap);
+        }
+      }
+    }
   }
 
   _buildPlan() {
@@ -263,10 +292,10 @@ export class Route {
     const done = new Set();
     ctrl.push({ s: -1000, y: st[0].level });
     for (let i = 0; i < st.length; i++) {
-      ctrl.push({ s: st[i].c - ZONE_HALF, y: st[i].level });
-      ctrl.push({ s: st[i].c + ZONE_HALF, y: st[i].level });
+      ctrl.push({ s: st[i].c - (st[i].flat ?? ZONE_HALF), y: st[i].level });
+      ctrl.push({ s: st[i].c + (st[i].flat ?? ZONE_HALF), y: st[i].level });
       if (i < st.length - 1) {
-        const a = st[i].c + ZONE_HALF, b = st[i + 1].c - ZONE_HALF;
+        const a = st[i].c + (st[i].flat ?? ZONE_HALF), b = st[i + 1].c - (st[i + 1].flat ?? ZONE_HALF);
         const outs = this.outdoor.filter((o) => o.s1 > a && o.s0 < b);
         for (const o of outs) {
           if (!done.has(o) && o.poly) { done.add(o); this._buryBeyond(o, ctrl); }
