@@ -1047,7 +1047,7 @@ function buildNovomosk(grp, c) {
   for (let i = 0; i < zs.length - 1; i++) c.info.spots.push({ x: xm, z: zs[i] + cs / 2 });
 }
 
-export { letterTex, seamTex };
+export { letterTex, seamTex, heightCanvasToNormal };
 
 export const HQ_BUILDERS = { kv: buildKV, krop: buildKrop, koms: buildKoms, kolom: buildKolom, babush: buildBabush, novomosk: buildNovomosk };
 
@@ -1078,7 +1078,8 @@ export function* captureEnvSteps(renderer, scene, built) {
     yield;
   }
   const pm = new THREE.PMREMGenerator(renderer);
-  const env = pm.fromCubemap(rt.texture).texture;
+  const envRT = pm.fromCubemap(rt.texture), env = envRT.texture;
+  built.info.envRT = envRT; // освобождать render target целиком (одна текстура его не освобождает)
   pm.dispose(); rt.dispose();
   g.traverse((o) => { const m = o.material; if (m && m.isMeshStandardMaterial) { m.envMap = env; m.needsUpdate = true; } });
   built.info.env = env;
@@ -1103,7 +1104,8 @@ export function captureEnv(renderer, scene, built) {
   renderer.toneMapping = tm;
   for (const [m, e] of boosted) m.emissive.copy(e);
   const pm = new THREE.PMREMGenerator(renderer);
-  const env = pm.fromCubemap(rt.texture).texture;
+  const envRT = pm.fromCubemap(rt.texture), env = envRT.texture;
+  built.info.envRT = envRT; // освобождать render target целиком (одна текстура его не освобождает)
   pm.dispose(); rt.dispose();
   g.traverse((o) => { const m = o.material; if (m && m.isMeshStandardMaterial) { m.envMap = env; m.needsUpdate = true; } });
   built.info.env = env;

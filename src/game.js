@@ -18,6 +18,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { disposeObject, clamp, lerp, fmtTime, mulberry32 } from './engine/util.js';
 import { LINES, TRAINS, resolveDir, reverseDir, lineDirs } from './data/lines.js';
 import { buildFork } from './engine/fork.js';
+import { releaseBKL } from './engine/bkl.js';
 import { SCHEME } from './data/scheme.js';
 
 const CHUNK = 200;
@@ -217,10 +218,10 @@ export class Game {
     this.scene.remove(it.obj);
     if (it.built && it.built.info) {
       if (it.built.info.reflector && it.built.info.reflector.dispose) it.built.info.reflector.dispose();
-      if (it.built.info.env) it.built.info.env.dispose();
+      if (it.built.info.envRT) it.built.info.envRT.dispose(); else if (it.built.info.env) it.built.info.env.dispose();
     }
     disposeObject(it.obj);
-    if (it.kind === 'st') releaseTextures(it.st.name);
+    if (it.kind === 'st') { releaseTextures(it.st.name); releaseBKL(it.st.name); }
   }
 
   // ---------- подгрузка мира ----------
@@ -851,6 +852,7 @@ export class Game {
     if (z && z.oppAt) return z.oppAt(s);
     const rv = st.lay && st.lay.tr && st.lay.tr.find((x) => x[1] === 'rev');
     if (rv && Math.abs(s - st.c) < HALL_HALF + 150) return rv[0];
+    if (st.W && !st.lay) return -1.48 - st.W - 1.48;
     const t = st.style.t;
     if (t === 'side') return -4.6;
     const W = t === 'pylon' || t === 'cold' ? 19 : t === 'bridge' ? 14 : 10;

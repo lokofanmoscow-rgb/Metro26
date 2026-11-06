@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { mulberry32, hashStr, clamp } from './util.js';
 import { trackPolyline, frameMatrix } from './osm.js';
 import { stationLayout } from '../data/layouts.js';
+import { bklSpec } from '../data/bkl.js';
 
 export const PLATFORM_LEN = 162;
 export const STOP_OFFSET = 78; // от центра платформы до остановочной отметки (голова поезда)
@@ -58,6 +59,9 @@ export class Route {
         deep: !!st.deep, level: stationLevel(st),
         // нестандартный поперечник (боковые платформы, кросс-платформенный зал, 3–4 пути …)
         lay: stationLayout(line.id, st.n, dir),
+        // детальное оформление станции БКЛ (по панорамам) и ширина её платформы
+        bkl: bklSpec(line.id, st.n),
+        W: (bklSpec(line.id, st.n) || {}).W,
       };
     });
     const byName = Object.fromEntries(fwd.map((s, i) => [s.n, i]));

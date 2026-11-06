@@ -8,6 +8,7 @@ import { mergeGeoms, boxGeom, cylGeom, shade, mulberry32, hashStr, makeCanvas, c
 import { HALL_HALF, STOP_OFFSET } from './route.js';
 import { GROUND_Y } from './osm.js';
 import { HQ, HQ_BUILDERS, pbr, recolor, imgTex, lampMat } from './hq.js';
+import { buildBKL, buildBKLPylon } from './bkl.js';
 
 export const EDGE_X = -1.48;
 export const PLAT_Y = 1.1;
@@ -269,13 +270,15 @@ export function* buildStationSteps(route, st, line) {
   const deep = !!style.deep;
   const info = { spots: [], exits: [], lights: [], signal: null, clock: null, oppX: 0 };
   // детальная модель станции по фотографиям (если есть и текстуры загружены)
-  const hq = style.hq && HQ.ready && HQ.renderer ? HQ_BUILDERS[style.hq] : null;
+  const BK = st.bkl && HQ.ready && HQ.renderer ? st.bkl : null;
+  const hq = BK ? 'bkl' : style.hq && HQ.ready && HQ.renderer ? HQ_BUILDERS[style.hq] : null;
   info.hq = !!hq;
 
   // геометрия поперечника по типу
   let W = 10; // ширина платформы
   if (t === 'pylon' || t === 'cold') W = 19;
   if (t === 'bridge') W = 14;
+  if (st.W) W = st.W;
   if (LAY && LAY.W) W = LAY.W;
   if (ISL) W = ISL.W;
   const mirror = !!(ISL && ISL.mirror);
@@ -337,7 +340,9 @@ export function* buildStationSteps(route, st, line) {
   const lampGeom = { strip: new THREE.BoxGeometry(0.25, 0.05, 2.6), ball: new THREE.SphereGeometry(0.28, 12, 8), led: new THREE.BoxGeometry(0.12, 0.04, 6) };
 
   yield; // постройка по частям: следующий кусок — в следующем кадре
-  if (hq) hq(grp, { PLAT_Y, EDGE_X, xFar, oppX, rightWall, leftWall, PL, HZ, BED_Y, info, style, yC });
+  if (BK && BK.type === 'pylon') yield* buildBKLPylon(grp, { PLAT_Y, EDGE_X, xFar, oppX, rightWall, leftWall, PL, HZ, BED_Y, info, style, name: st.name, title: style.n }, BK);
+  else if (BK) yield* buildBKL(grp, { PLs: [[xFar, EDGE_X]], TR: [0, oppX], xMin: leftWall, xMax: rightWall, PL, HZ, PLAT_Y, BED_Y, info, name: st.name, title: style.n, our: [xFar, EDGE_X], spots: true }, BK);
+  else if (hq) hq(grp, { PLAT_Y, EDGE_X, xFar, oppX, rightWall, leftWall, PL, HZ, BED_Y, info, style, yC });
   yield;
   if (st.elev) {
     // станция на эстакаде: плита под путями и платформой, ригели и стойки до земли
@@ -498,7 +503,7 @@ export function* buildStationSteps(route, st, line) {
   // торцевые стены с проёмами тоннелей
   if (t !== 'ground' && t !== 'bridge') {
     const topY = Math.max((t === 'pylon' || t === 'cold') ? 9.5 : t === 'vault' ? 8.2 : yC, hq && info.ceilY ? info.ceilY + 0.3 : 0);
-    const endMat = mat(concreteTexture(shade(style.w, -0.1).slice(0, 7)), 0.4, { side: THREE.DoubleSide });
+    const endMat = mat(concreteTexture('#d4d2cc'), 0.4, { side: THREE.DoubleSide }); // общая текстура, цвет станции — через color
     endMat.color = new THREE.Color(style.wp === 'glass' ? '#cccccc' : style.w);
     const xm = (EDGE_X + xFar) / 2;
     // выход: марш лестницы к проёму в торце платформы, коридор и наклонный ход в вестибюль
@@ -641,7 +646,7 @@ export function* buildStationSteps(route, st, line) {
   if (!hq) for (let z = -PL + 15; z < PL; z += 33) info.lights.push(new THREE.Vector3(xm, yC - 0.6, z), new THREE.Vector3(1.0, Math.min(yC, 5) - 0.6, z + 12));
   info.platform = { x0: xFar + 0.6, x1: EDGE_X - 0.5, z0: -PL + 3, z1: PL - 3, y: PLAT_Y };
   // полосы, куда нельзя ставить камеру «вид снаружи» (толща пилонов)
-  info.noCam = (t === 'pylon' || t === 'cold') ? [[-7.15, -4.15], [xFar + 2.55, xFar + 5.55]] : [];
+  if (!info.noCamSet) info.noCam = (t === 'pylon' || t === 'cold') ? [[-7.15, -4.15], [xFar + 2.55, xFar + 5.55]] : [];
   info.colRows = colRows;
   info.W = W;
   if (!hq) info.ceilY = yC;
@@ -1192,8 +1197,9 @@ export function* buildMultiSteps(route, st, line, L) {
   let xMin = Math.min(...TR.map((r) => r.x - 2.25), ...PLs.map((p) => p[0]));
   let xMax = Math.max(...TR.map((r) => r.x + 2.25), ...PLs.map((p) => p[1]));
   if (L.hall) { const h = L.hall.map((v) => v * m).sort((a, b) => a - b); xMin = h[0]; xMax = h[1]; }
-  const vault = t === 'vault' && !open;
-  const ch = style.ch || (t === 'span' ? 4.8 : 4.4);
+  const BK = st.bkl && HQ.ready && HQ.renderer && !open ? st.bkl : null;
+  const vault = t === 'vault' && !open && !BK;
+  const ch = BK ? BK.h ?? 5 : style.ch || (t === 'span' ? 4.8 : 4.4);
   const yC = vault ? 3.4 : PLAT_Y + ch;
   const vaultTop = vault ? 3.4 + Math.min(4.6, (xMax - xMin) * 0.45) : yC;
   const topY = vault ? vaultTop : yC;
@@ -1223,7 +1229,7 @@ export function* buildMultiSteps(route, st, line, L) {
     }
     sideG.push(endWallBox(a, b, BED_Y, PLAT_Y, -PL), endWallBox(a, b, BED_Y, PLAT_Y, PL));
   }
-  grp.add(new THREE.Mesh(mergeGeoms(plG), floorMat));
+  if (!BK) grp.add(new THREE.Mesh(mergeGeoms(plG), floorMat));
   grp.add(new THREE.Mesh(mergeGeoms(sideG), darkMat));
   grp.add(new THREE.Mesh(mergeGeoms(edgeG), edgeMat));
   if (style.y >= 2010 && tact.length) grp.add(new THREE.Mesh(mergeGeoms(tact), new THREE.MeshLambertMaterial({ color: 0xe8c22a, emissive: 0x3a3008 })));
@@ -1234,7 +1240,7 @@ export function* buildMultiSteps(route, st, line, L) {
   for (let z = -PL + cs * 0.75; z < PL - cs * 0.5; z += cs) zsCol.push(z);
   const rowsPlat = [], rowsBed = [];
   const me = TR.find((r) => r.k === 'me'), rev = TR.find((r) => r.k === 'rev');
-  if (!open && !vault) {
+  if (!open && !vault && !BK) {
     if ((L.cols === 'mid' || L.cols === 'alex') && rev) rowsBed.push((me.x + rev.x) / 2);
     if (L.cols === 'alex') for (const [a, b] of PLs) rowsPlat.push((a + b) / 2);
     if (L.cols === 'edge') for (const [a, b] of PLs) for (const r of TR) { if (near(r.x - 1.48, b)) rowsPlat.push(b - 0.9); if (near(r.x + 1.48, a)) rowsPlat.push(a + 0.9); }
@@ -1273,6 +1279,8 @@ export function* buildMultiSteps(route, st, line, L) {
     const tex = nameTexture(style.n, 'plate');
     const nm = new THREE.MeshBasicMaterial({ map: tex });
     grp.add(new THREE.Mesh(mergeGeoms(PLs.flatMap(([a, b]) => [-50, -10, 30, 70].flatMap((z) => signPair(0.6 * tex.userData.aspect, 0.6, (a + b) / 2, roofY - 0.75, z)))), nm));
+  } else if (BK) {
+    yield* buildBKL(grp, { PLs, TR: TR.map((r) => r.x), xMin, xMax, PL, HZ, PLAT_Y, BED_Y, info, name: st.name, title: style.n, our, spots: false }, BK);
   } else {
     if (vault) {
       const xc = (xMin + xMax) / 2, rx = (xMax - xMin) / 2;
@@ -1298,7 +1306,7 @@ export function* buildMultiSteps(route, st, line, L) {
   yield;
   // торцы: стены с проёмами тоннелей всех путей, у платформ — проходы к выходам
   if (!open) {
-    const endMat = mat(concreteTexture(shade(style.w, -0.1).slice(0, 7)), 0.4, { side: THREE.DoubleSide });
+    const endMat = mat(concreteTexture('#d4d2cc'), 0.4, { side: THREE.DoubleSide }); // общая текстура, цвет станции — через color
     endMat.color = new THREE.Color(style.w);
     const holes = TR.map((r) => r.x);
     grp.add(new THREE.Mesh(mergeGeoms([
